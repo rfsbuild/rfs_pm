@@ -35,6 +35,7 @@ CONCURRENCY
 import datetime
 import fcntl
 import json
+import re
 import os
 import shutil
 import tempfile
@@ -72,10 +73,14 @@ ASSIGNEES = ("hadassa", "rafael", "guilherme", "claude", "alice")
 ITEM_FIELDS = (
     "id", "source", "project", "lane", "kind", "subject", "meta",
     "ctx_sum", "ctx_body", "action", "where", "links", "draft", "pills",
-    "unconfirmed", "is_new", "moved", "age",
+    "unconfirmed", "is_new", "moved", "age", "due",
     "status", "done_at", "defer", "defer_days", "assignee", "note", "followup",
     "first_seen", "last_seen",
 )
+
+# Fields the UI may edit in place. Deliberately excludes status/defer/assignee —
+# those go through apply_click so defer_days accounting stays correct.
+PATCHABLE = ("subject", "meta", "action", "project", "lane", "kind", "due", "ctx_sum")
 
 
 # ── time ──
@@ -189,7 +194,7 @@ def new_item(id, subject, **kw):
         "kind": "action", "subject": subject, "meta": "",
         "ctx_sum": "", "ctx_body": [], "action": "", "where": [], "links": [],
         "draft": None, "pills": [], "unconfirmed": False, "is_new": True,
-        "moved": None, "age": 0,
+        "moved": None, "age": 0, "due": None,
         "status": "open", "done_at": None, "defer": None, "defer_days": 0,
         "assignee": None, "note": None, "followup": None,
         "first_seen": None, "last_seen": None,
@@ -417,6 +422,74 @@ def upsert_item(item, path=STATE_PATH, now=None):
             existing["project"] = item["project"]
         existing["last_seen"] = _now_iso(now)
         return "updated"
+    return _mutate(_fn, path, now)[1]
+
+
+def slug_id(text, prefix="new"):
+    base = re.sub(r"[^a-z0-9]+", "_", (text or "").lower()).strip("_")[:40] or "item"
+    return "%s_%s" % (prefix, base)
+
+
+def patch_content(item_id, patch, path=STATE_PATH, now=None):
+    """Inline edits from the UI (subject, action, project, due, lane…)."""
+    def _fn(state):
+        it = get_item(state, item_id)
+        if it is None:
+            return False
+        for k in PATCHABLE:
+            if k in patch:
+                v = patch[k]
+                if isinstance(v, str):
+                    v = v.strip() or None
+                if k == "lane" and v not in LANES:
+                    continue
+                it[k] = v
+        return True
+    return _mutate(_fn, path, now)[1]
+
+
+def apply_click(item_id, payload, path=STATE_PATH, now=None):
+    """Apply a whole UI interaction in ONE locked write.
+
+    The UI sends the item's full click-state on every change. Doing that as
+    five separate set_* calls would take five locks and leave four windows
+    where the file is half-updated; one call keeps a click atomic.
+
+    `defer_days` only increments when the defer reason actually CHANGES —
+    re-sending the same reason (a re-render, a double click) must not inflate
+    the counter, because that counter drives the 3-day escalation to urgent.
+    """
+    def _fn(state):
+        it = get_item(state, item_id)
+        if it is None:
+            return None
+        if "done" in payload:
+            want = bool(payload["done"])
+            if want != (it.get("status") == "done"):
+                it["status"] = "done" if want else "open"
+                it["done_at"] = _now_iso(now) if want else None
+        if "assignee" in payload:
+            who = payload["assignee"]
+            it["assignee"] = None if who in (None, "", "hadassa") else who
+        if "defer" in payload:
+            new = payload["defer"] or None
+            if new != it.get("defer"):
+                it["defer"] = new
+                it["defer_days"] = (int(it.get("defer_days") or 0) + 1) if new else 0
+        if "note" in payload:
+            it["note"] = (payload["note"] or "").strip() or None
+        if "project" in payload and payload["project"] is not None:
+            it["project"] = (payload["project"] or "").strip() or None
+        if "followup" in payload:
+            it["followup"] = payload["followup"] or None
+        if "due" in payload:
+            it["due"] = payload["due"] or None
+        return {
+            "ok": True, "id": item_id,
+            "done_at": it.get("done_at"),
+            "defer_days": it.get("defer_days"),
+            "lane": effective_lane(it),
+        }
     return _mutate(_fn, path, now)[1]
 
 
