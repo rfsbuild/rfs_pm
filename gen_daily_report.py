@@ -88,15 +88,32 @@ def financial(d, err):
               if dd.get("eod_planned") is not None and floor is not None
               and dd["eod_planned"] < floor]
 
+    # "ahead" is only true when the low point is a FUTURE day. Hadassa caught
+    # this on 2026-07-28: the report read "the tightest day ahead is Tuesday,
+    # July 28" on Tuesday, July 28. Computed once here because BOTH the tile
+    # sub-label and the outlook sentence below have to respect it.
+    _is_today = (tro_date is not None and tro_date == S._today())
+    _low_label = "lowest point today" if _is_today else "lowest point ahead"
+
     # Three tiles, matching the published reports. No A/R table — her
     # published dailies have never carried one ("we didn't have in the other
     # ones", 2026-07-28) and a seven-row table is unreadable on a phone.
+    # Cap One pending charges are NOT in the posted balance, so the tile would
+    # understate what is really owed. Say it in the sub-label rather than
+    # silently adding it to the headline number (Hadassa, 2026-07-28).
+    _ccp = ((d.get("_cc_pending") or {}).get("capital_one") or [])
+    _ccp_tot = sum(float(p.get("amount") or 0) for p in _ccp)
+    _card_sub = "Capital One, owed"
+    if _ccp_tot:
+        _card_sub += " · plus %s pending, not yet posted" % money(_ccp_tot)
+
     tiles = [
-        ("Cash on hand", money(bank), "", "Citizens checking, reconciled to the bank"),
-        ("Card balance", money(card), "", "Capital One, owed"),
+        ("Cash on hand", money(bank), "",
+         "Citizens checking, available balance — pending holds already deducted"),
+        ("Card balance", money(card), "", _card_sub),
         ("Projected low", money(trough),
          "bad" if (floor and trough is not None and trough < floor) else "ok",
-         "lowest point ahead%s" % (" · %s" % _pretty_date(tro_date) if tro_date else "")),
+         "%s%s" % (_low_label, " · %s" % _pretty_date(tro_date) if tro_date else "")),
     ]
     out = ['<div class="tiles">']
     for k, v, cl, sub in tiles:
@@ -113,15 +130,21 @@ def financial(d, err):
     if bank is not None:
         lines.append("Cash stands at %s this evening." % money(bank))
     if trough is not None and floor is not None:
+        # "ahead" is only true if the trough is a FUTURE day. Hadassa caught this
+        # on 2026-07-28: the report read "the tightest day ahead is Tuesday,
+        # July 28" on Tuesday, July 28. When the low point is today, say so.
+        _pretty = _pretty_date(tro_date)
         if trough < floor:
-            lines.append(
-                "The tightest day ahead is %s at %s, which is %s under the "
-                "%s floor." % (_pretty_date(tro_date), money(trough),
-                               money(round(floor - trough, 2)), money(floor)))
+            head = ("The tightest day is today, %s," % _pretty) if _is_today \
+                else ("The tightest day ahead is %s" % _pretty)
+            lines.append("%s at %s, which is %s under the %s floor."
+                         % (head, money(trough), money(round(floor - trough, 2)),
+                            money(floor)))
         else:
-            lines.append(
-                "The lowest point ahead is %s at %s, staying above the %s floor."
-                % (_pretty_date(tro_date), money(trough), money(floor)))
+            head = ("The lowest point is today, %s," % _pretty) if _is_today \
+                else ("The lowest point ahead is %s" % _pretty)
+            lines.append("%s at %s, staying above the %s floor."
+                         % (head, money(trough), money(floor)))
     if len(breach) > 1:
         lines.append("%d days in the window fall below the floor." % len(breach))
     if lines:
