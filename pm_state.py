@@ -77,6 +77,10 @@ ITEM_FIELDS = (
     "status", "done_at", "defer", "defer_days", "assignee", "note", "followup",
     "dismiss_reason", "dismissed_at",
     "first_seen", "last_seen",
+    # `did` = what SHE actually did about this, in her voice. The daily report
+    # is a record of her actions, not a status board, so a card with no `did`
+    # has nothing to report even when it is done. Set 2026-07-28.
+    "did",
 )
 
 # status values. `dismissed` = "this task isn't needed" — it is NOT the same as
@@ -89,7 +93,8 @@ STATUSES = ("open", "done", "dismissed")
 
 # Fields the UI may edit in place. Deliberately excludes status/defer/assignee —
 # those go through apply_click so defer_days accounting stays correct.
-PATCHABLE = ("subject", "meta", "action", "project", "lane", "kind", "due", "ctx_sum")
+PATCHABLE = ("subject", "meta", "action", "project", "lane", "kind", "due",
+             "ctx_sum", "did")
 
 
 # ── time ──
@@ -593,6 +598,66 @@ def roll_forward(to_date=None, path=STATE_PATH, now=None):
         state["roll_log"].append(entry)
         return entry
     return _mutate(_fn, path, now)[1]
+
+
+# Both must carry evidence before the board counts as swept. Slack alone is
+# not a sweep: on 2026-07-28 a thorough Slack pass plus a cursory ten-thread
+# Gmail glance was stamped as "gmail, slack" and six items went out wrong.
+REQUIRED_SWEEP_SOURCES = ("gmail", "slack")
+
+
+def mark_swept(evidence, path=STATE_PATH, now=None):
+    """Record a sweep — but only against EVIDENCE, never a bare assertion.
+
+    `evidence` is {source: {"checked": int, "detail": str}}. Every source in
+    REQUIRED_SWEEP_SOURCES must be present with a non-zero `checked` count and
+    a non-empty `detail` saying what was actually queried, or this raises.
+
+    Why it is shaped this way: the first version took a `sources` tuple and
+    trusted the caller to be honest. Three hours later the caller set the field
+    by direct assignment, claimed both sources, and the gate passed on a sweep
+    that had only covered Slack. A precondition the caller self-asserts is
+    decoration. Making the argument expensive to fake — you have to name what
+    you queried and how much came back — is the point.
+    """
+    if not isinstance(evidence, dict):
+        raise ValueError("mark_swept needs an evidence dict, not %r" % type(evidence))
+    missing = []
+    for src in REQUIRED_SWEEP_SOURCES:
+        ev = evidence.get(src) or {}
+        if not ev.get("checked") or not (ev.get("detail") or "").strip():
+            missing.append(src)
+    if missing:
+        raise ValueError(
+            "cannot mark the board swept — no evidence for: %s. "
+            "Each source needs {'checked': <non-zero>, 'detail': '<what you queried>'}."
+            % ", ".join(missing))
+
+    def _fn(state):
+        state["last_swept_at"] = _now_iso(now)
+        state["last_swept_sources"] = sorted(evidence)
+        state["last_swept_evidence"] = evidence
+        return state["last_swept_at"]
+    return _mutate(_fn, path, now)[1]
+
+
+def swept_today(state, now=None):
+    """(is_fresh, human_reason) — the gate the report generator enforces."""
+    stamp = state.get("last_swept_at")
+    if not stamp:
+        return False, "the board has never been swept against Gmail + Slack"
+    if stamp[:10] != _today(now):
+        return False, "the board was last swept on %s, not today" % stamp[:10]
+    ev = state.get("last_swept_evidence") or {}
+    thin = [s for s in REQUIRED_SWEEP_SOURCES
+            if not (ev.get(s) or {}).get("checked")]
+    if thin:
+        return False, ("the board carries no evidence of a %s sweep — a stamp "
+                       "alone is not a sweep" % " or ".join(thin))
+    return True, "board swept %s (%s)" % (
+        stamp[11:16],
+        "; ".join("%s: %s" % (s, (ev[s].get("detail") or "").strip())
+                  for s in sorted(ev)))
 
 
 def health(path=STATE_PATH):

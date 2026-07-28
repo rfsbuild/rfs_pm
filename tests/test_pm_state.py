@@ -226,6 +226,72 @@ def test_live_board_is_loadable_and_sane():
     assert len(st["items"]) > 0
     for it in st["items"]:
         assert it["lane"] in S.LANES
-        assert it["status"] in ("open", "done")
+        # Bound to the data layer's own contract, not a hand-copied tuple. The
+        # literal ("open", "done") here silently went stale the moment
+        # "not needed" shipped, and this test was red for a whole session
+        # before anyone re-ran it.
+        assert it["status"] in S.STATUSES
         if it["done_at"]:
             assert S.parse_dt(it["done_at"]).tzinfo is not None
+
+
+# ── the sweep freshness gate ──
+
+def test_swept_today_rejects_never_swept(path):
+    st, _ = S.load_state(path)
+    fresh, reason = S.swept_today(st)
+    assert fresh is False
+    assert "never been swept" in reason
+
+
+def test_swept_today_rejects_yesterdays_stamp(path):
+    st, _ = S.load_state(path)
+    st["last_swept_at"] = "2026-07-27T09:00:00-04:00"
+    fresh, reason = S.swept_today(st, now=datetime.datetime(2026, 7, 28, 17, 0))
+    assert fresh is False
+    assert "2026-07-27" in reason
+
+
+GOOD_EVIDENCE = {
+    "gmail": {"checked": 38, "detail": "every thread after:2026/07/28"},
+    "slack": {"checked": 25, "detail": "all channels + DMs, full day"},
+}
+
+
+def test_mark_swept_makes_it_fresh(path):
+    S.mark_swept(GOOD_EVIDENCE, path=path)
+    st, _ = S.load_state(path)
+    fresh, reason = S.swept_today(st)
+    assert fresh is True
+    assert "gmail" in reason and "slack" in reason
+    # the stamp must carry an offset, like every other timestamp here
+    assert S.parse_dt(st["last_swept_at"]).tzinfo is not None
+
+
+def test_mark_swept_refuses_a_missing_source(path):
+    """Slack alone is not a sweep — this is the exact 2026-07-28 failure."""
+    with pytest.raises(ValueError) as ex:
+        S.mark_swept({"slack": {"checked": 25, "detail": "all channels"}},
+                     path=path)
+    assert "gmail" in str(ex.value)
+
+
+def test_mark_swept_refuses_evidence_free_claims(path):
+    with pytest.raises(ValueError):
+        S.mark_swept({"gmail": {"checked": 0, "detail": "looked"},
+                      "slack": {"checked": 25, "detail": "all channels"}},
+                     path=path)
+    with pytest.raises(ValueError):
+        S.mark_swept({"gmail": {"checked": 38, "detail": "  "},
+                      "slack": {"checked": 25, "detail": "all channels"}},
+                     path=path)
+
+
+def test_bare_stamp_without_evidence_fails_the_gate(path):
+    """Direct assignment must not be able to satisfy the gate."""
+    st, _ = S.load_state(path)
+    st["last_swept_at"] = S._now_iso()
+    st["last_swept_sources"] = ["gmail", "slack"]
+    fresh, reason = S.swept_today(st)
+    assert fresh is False
+    assert "no evidence" in reason
