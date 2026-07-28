@@ -75,8 +75,17 @@ ITEM_FIELDS = (
     "ctx_sum", "ctx_body", "action", "where", "links", "draft", "pills",
     "unconfirmed", "is_new", "moved", "age", "due",
     "status", "done_at", "defer", "defer_days", "assignee", "note", "followup",
+    "dismiss_reason", "dismissed_at",
     "first_seen", "last_seen",
 )
+
+# status values. `dismissed` = "this task isn't needed" — it is NOT the same as
+# done, and it always carries a written reason (Hadassa 2026-07-28: "whenever I
+# click it I need to tell why it's not so it makes sense and it's recorded").
+# Keeping it distinct from done matters: the daily report should be able to say
+# "3 items were judged unnecessary, and here is why" rather than quietly
+# inflating the completion count.
+STATUSES = ("open", "done", "dismissed")
 
 # Fields the UI may edit in place. Deliberately excludes status/defer/assignee —
 # those go through apply_click so defer_days accounting stays correct.
@@ -197,6 +206,7 @@ def new_item(id, subject, **kw):
         "moved": None, "age": 0, "due": None,
         "status": "open", "done_at": None, "defer": None, "defer_days": 0,
         "assignee": None, "note": None, "followup": None,
+        "dismiss_reason": None, "dismissed_at": None,
         "first_seen": None, "last_seen": None,
     }
     for k, v in kw.items():
@@ -218,7 +228,7 @@ def normalize(state):
         # legacy/rogue values -> safe defaults
         if it.get("lane") not in LANES:
             it["lane"] = "action"
-        if it.get("status") not in ("open", "done"):
+        if it.get("status") not in STATUSES:
             it["status"] = "open"
         try:
             it["age"] = int(it.get("age") or 0)
@@ -268,6 +278,8 @@ def sink_rank(it):
     only the incomplete ones on the top." The top of the page is the scarce
     resource; finished work keeps the record but loses the attention slot.
     """
+    if it.get("status") == "dismissed":
+        return 3
     if it.get("status") == "done":
         return 2
     if it.get("defer"):
@@ -317,12 +329,19 @@ def counts(state):
         per_lane[effective_lane(it)] = per_lane.get(effective_lane(it), 0) + 1
     actionable = [it for it in state["items"] if effective_lane(it) in ACTIONABLE_LANES]
     done = [it for it in actionable if it.get("status") == "done"]
+    dismissed = [it for it in actionable if it.get("status") == "dismissed"]
+    # A dismissed item is neither done nor outstanding, so it leaves the
+    # denominator entirely — otherwise the day's progress bar would be gamed by
+    # dismissing work rather than doing it.
+    denom = len(actionable) - len(dismissed)
     return {
         "per_lane": per_lane,
         "total": len(state["items"]),
         "actionable": len(actionable),
         "done": len(done),
-        "pct": round(len(done) / len(actionable) * 100) if actionable else 0,
+        "dismissed": len(dismissed),
+        "open": denom - len(done),
+        "pct": round(len(done) / denom * 100) if denom else 0,
     }
 
 
@@ -463,11 +482,30 @@ def apply_click(item_id, payload, path=STATE_PATH, now=None):
         it = get_item(state, item_id)
         if it is None:
             return None
+        # "Not needed" — always carries a written reason. The UI must collect it;
+        # the server refuses the transition without one so a dismissal can never
+        # end up in the daily report as an unexplained disappearance.
+        if "dismiss" in payload:
+            if payload["dismiss"]:
+                reason = (payload.get("dismiss_reason") or "").strip()
+                if not reason:
+                    return {"error": "a reason is required to mark something not needed"}
+                it["status"] = "dismissed"
+                it["dismiss_reason"] = reason
+                it["dismissed_at"] = _now_iso(now)
+                it["done_at"] = None
+            else:
+                it["status"] = "open"
+                it["dismiss_reason"] = None
+                it["dismissed_at"] = None
         if "done" in payload:
             want = bool(payload["done"])
             if want != (it.get("status") == "done"):
                 it["status"] = "done" if want else "open"
                 it["done_at"] = _now_iso(now) if want else None
+                if want:   # completing something clears a prior dismissal
+                    it["dismiss_reason"] = None
+                    it["dismissed_at"] = None
         if "assignee" in payload:
             who = payload["assignee"]
             it["assignee"] = None if who in (None, "", "hadassa") else who
@@ -522,8 +560,14 @@ def roll_forward(to_date=None, path=STATE_PATH, now=None):
         target = to_date or _today(now)
         if state.get("brief_date") == target:
             return {"skipped": "already rolled", "brief_date": target}
-        carried, dropped, escalated = [], 0, []
+        carried, dropped, escalated, dismissed = [], 0, [], []
         for it in state["items"]:
+            if it.get("status") == "dismissed":
+                # Leaves the board like a completed item, but the reason is
+                # preserved in the roll log so the daily report can explain it.
+                dismissed.append({"id": it["id"], "subject": it.get("subject"),
+                                  "reason": it.get("dismiss_reason")})
+                continue
             if it.get("status") == "done":
                 dropped += 1
                 continue
@@ -542,6 +586,7 @@ def roll_forward(to_date=None, path=STATE_PATH, now=None):
             "carried": len(carried),
             "dropped": dropped,
             "escalated": escalated,
+            "dismissed": dismissed,
         }
         state["items"] = carried
         state["brief_date"] = target

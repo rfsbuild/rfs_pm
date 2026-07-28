@@ -47,8 +47,11 @@ def to_ui(state):
     for it in state["items"]:
         items.append({k: it.get(v) for k, v in _CONTENT_MAP.items()})
         clicks[it["id"]] = {
+            "status": it.get("status", "open"),
             "done": it.get("status") == "done",
             "done_at": it.get("done_at"),
+            "dismiss_reason": it.get("dismiss_reason"),
+            "dismissed_at": it.get("dismissed_at"),
             "assignee": it.get("assignee"),
             "defer": it.get("defer"),
             "deferDays": int(it.get("defer_days") or 0),

@@ -92,6 +92,24 @@ a{color:var(--brand-deep);}
 .card.sel{border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-soft);}
 .card.cursor:before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--brand);}
 .card.done{opacity:.52;}
+.card.dismissed{opacity:.5;background:repeating-linear-gradient(135deg,#fff,#fff 9px,#fbfbfd 9px,#fbfbfd 18px);}
+.card.dismissed .subj{text-decoration:line-through;color:var(--muted);}
+.dismissbox{margin:0 14px 12px;background:#f6f7fb;border-left:3px solid var(--faint);
+  border-radius:6px;padding:8px 11px;font-size:12.5px;color:var(--body);}
+.dismissbox .lbl{font-size:9.5px;text-transform:uppercase;letter-spacing:.08em;
+  color:var(--muted);font-weight:750;}
+.modal{position:fixed;left:50%;top:22%;transform:translateX(-50%);width:min(520px,92vw);
+  background:var(--card);border-radius:14px;box-shadow:0 24px 70px rgba(0,0,0,.3);
+  z-index:102;display:none;overflow:hidden;}
+.modal.show{display:block;}
+.modal h3{margin:0;padding:15px 18px 4px;font-size:15px;}
+.modal .sub{padding:0 18px 12px;font-size:13px;color:var(--muted);}
+.modal textarea{width:calc(100% - 36px);margin:0 18px;border:1px solid var(--rule);
+  border-radius:9px;padding:10px 12px;font-size:14px;min-height:88px;resize:vertical;outline:none;}
+.modal textarea:focus{border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-soft);}
+.modal .quick{display:flex;gap:6px;flex-wrap:wrap;padding:10px 18px 0;}
+.modal .mfoot{display:flex;gap:8px;justify-content:flex-end;padding:14px 18px;}
+.modal .err{color:var(--bad);font-size:12.5px;padding:6px 18px 0;display:none;}
 .card.urgent{border-left:3px solid var(--bad);}
 .card.deferred{border-left:3px solid var(--amber);}
 .chead{display:flex;gap:11px;padding:12px 14px;align-items:flex-start;}
@@ -162,21 +180,28 @@ input[type=date].mini{color:var(--muted);}
   display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:750;flex:0 0 auto;}
 .focus-row .fs{flex:1;font-size:13.5px;font-weight:600;}
 .focus-row.isdone .fs{text-decoration:line-through;color:var(--muted);}
+.card.dismissed .act,.card.dismissed .crow select{opacity:.6;}
 
 /* bulk bar + toast + palette */
-.bulk{position:fixed;left:50%;bottom:22px;transform:translateX(-50%) translateY(120%);
+.bulk{position:fixed;left:50%;bottom:22px;transform:translateX(-50%) translateY(14px);
   background:var(--ink);color:#fff;border-radius:12px;padding:10px 14px;display:flex;gap:9px;
-  align-items:center;z-index:90;box-shadow:0 8px 30px rgba(0,0,0,.24);transition:.22s;font-size:13px;}
-.bulk.show{transform:translateX(-50%) translateY(0);}
+  align-items:center;z-index:90;box-shadow:0 8px 30px rgba(0,0,0,.24);font-size:13px;
+  opacity:0;visibility:hidden;pointer-events:none;
+  transition:opacity .18s,transform .18s,visibility 0s linear .18s;}
+.bulk.show{transform:translateX(-50%) translateY(0);opacity:1;visibility:visible;
+  pointer-events:auto;transition-delay:0s;}
 .bulk button{background:rgba(255,255,255,.14);border:none;color:#fff;border-radius:7px;
   padding:5px 10px;font-size:12.5px;font-weight:650;}
 .bulk button:hover{background:rgba(255,255,255,.26);}
 .bulk select{background:rgba(255,255,255,.14);border:none;color:#fff;border-radius:7px;padding:5px 8px;font-size:12.5px;}
 .bulk select option{color:var(--ink);}
-.toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%) translateY(120%);
+.toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%) translateY(14px);
   background:var(--ink);color:#fff;border-radius:10px;padding:10px 15px;z-index:95;
-  box-shadow:0 8px 30px rgba(0,0,0,.24);transition:.22s;font-size:13px;display:flex;gap:12px;align-items:center;}
-.toast.show{transform:translateX(-50%) translateY(0);}
+  box-shadow:0 8px 30px rgba(0,0,0,.24);font-size:13px;display:flex;gap:12px;align-items:center;
+  opacity:0;visibility:hidden;pointer-events:none;
+  transition:opacity .18s,transform .18s,visibility 0s linear .18s;}
+.toast.show{transform:translateX(-50%) translateY(0);opacity:1;visibility:visible;
+  pointer-events:auto;transition-delay:0s;}
 .toast button{background:transparent;border:none;color:#a99bff;font-weight:750;font-size:13px;}
 .scrim{position:fixed;inset:0;background:rgba(28,33,48,.34);z-index:100;display:none;}
 .scrim.show{display:block;}
@@ -259,8 +284,19 @@ kbd{background:var(--rule-soft);border:1px solid var(--rule);border-bottom-width
   <button onclick="clearSel()">Clear</button>
 </div>
 
+<div class="modal" id="dmodal">
+  <h3>Not needed — why?</h3>
+  <div class="sub" id="dmodal-subj"></div>
+  <div class="quick" id="dmodal-quick"></div>
+  <textarea id="dmodal-why" placeholder="e.g. Rafael already handled it on site — no action left for me."></textarea>
+  <div class="err" id="dmodal-err">A reason is required. It goes into the daily report so the drop is explainable.</div>
+  <div class="mfoot">
+    <button class="mini" onclick="closeDismiss()">Cancel</button>
+    <button class="pbtn" onclick="confirmDismiss()">Mark not needed</button>
+  </div>
+</div>
 <div class="toast" id="toast"><span id="toasttxt"></span><button id="toastbtn" onclick="undo()">Undo</button></div>
-<div class="scrim" id="scrim" onclick="closePalette()"></div>
+<div class="scrim" id="scrim" onclick="closePalette();closeDismiss();"></div>
 <div class="palette" id="palette">
   <input id="pq" placeholder="Jump to an item, switch view, or run a command…" autocomplete="off">
   <div class="res" id="pres"></div>
@@ -278,7 +314,7 @@ const DEFERS={"no-time":"⏰ No time today","waiting":"👤 Waiting for someone"
   "later-week":"📅 Later this week","needs-rafael":"⚪ Needs Rafael"};
 const ASG=["hadassa","rafael","guilherme","claude","alice"];
 const VIEWS=[["today","Today"],["board","Board"],["project","By project"],
-             ["people","By person"],["done","Done"]];
+             ["people","By person"],["done","Done"],["dropped","Not needed"]];
 
 const esc=s=>String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;")
   .replace(/>/g,"&gt;").replace(/"/g,"&quot;");
@@ -296,7 +332,10 @@ function lane(it){
   if((s.deferDays||0)>=3)l="urgent";
   return l;
 }
-const rank=it=>cs(it.id).done?2:(cs(it.id).defer?1:0);
+const stat=id=>cs(id).status||(cs(id).done?"done":"open");
+const isDone=id=>stat(id)==="done";
+const isDrop=id=>stat(id)==="dismissed";
+const rank=it=>isDrop(it.id)?3:(isDone(it.id)?2:(cs(it.id).defer?1:0));
 const KR={compliance:0,pay:1,overdue:1,action:2};
 
 /* ════════ server ════════ */
@@ -315,6 +354,21 @@ function save(id){
     .then(j=>{ if(j.defer_days!==undefined) s.deferDays=j.defer_days;
                if(j.done_at!==undefined) s.done_at=j.done_at; setSave("saved"); return j;})
     .catch(e=>{setSave("error",e.message);});
+}
+function dismiss(id,reason){
+  const s=cs(id); setSave("saving");
+  return fetch("/api/item/"+encodeURIComponent(id),{method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({dismiss:true,dismiss_reason:reason})})
+    .then(r=>r.json()).then(j=>{
+      if(j.error){ setSave("error",j.error); throw new Error(j.error); }
+      s.status="dismissed"; s.dismiss_reason=reason; setSave("saved"); return j; });
+}
+function undismiss(id){
+  const s=cs(id); setSave("saving");
+  return fetch("/api/item/"+encodeURIComponent(id),{method:"POST",
+    headers:{"Content-Type":"application/json"},body:JSON.stringify({dismiss:false})})
+    .then(r=>r.json()).then(()=>{ s.status="open"; s.dismiss_reason=null; setSave("saved"); });
 }
 function patch(id,fields){
   setSave("saving");
@@ -349,8 +403,10 @@ function visible(){
   const q=FILT.q.toLowerCase();
   return ITEMS.filter(it=>{
     const s=cs(it.id);
-    if(VIEW==="done" && !s.done) return false;
-    if(VIEW!=="done" && FILT.openOnly && s.done) return false;
+    if(VIEW==="done"    && !isDone(it.id)) return false;
+    if(VIEW==="dropped" && !isDrop(it.id)) return false;
+    if(VIEW!=="done" && VIEW!=="dropped" && isDrop(it.id)) return false;
+    if(VIEW!=="done" && FILT.openOnly && isDone(it.id)) return false;
     if(FILT.mine && s.assignee) return false;
     if(FILT.dueSoon && !it.due) return false;
     if(FILT.src.size && !FILT.src.has(it.source)) return false;
@@ -375,11 +431,11 @@ function render(){
   if(!vis.length){ b.innerHTML='<div class="empty">Nothing matches. Clear the filters or search.</div>'; return; }
 
   if(VIEW==="today"){
-    const focus=sortItems(vis.filter(i=>!cs(i.id).done && ["urgent","action"].includes(lane(i)))).slice(0,5);
+    const focus=sortItems(vis.filter(i=>stat(i.id)==="open" && ["urgent","action"].includes(lane(i)))).slice(0,5);
     if(focus.length){
       b.insertAdjacentHTML("beforeend",sec("The five that matter",focus.length));
       focus.forEach((it,n)=>b.insertAdjacentHTML("beforeend",
-        `<div class="focus-row ${cs(it.id).done?"isdone":""}" onclick="jump('${it.id}')">
+        `<div class="focus-row ${isDone(it.id)?"isdone":""}" onclick="jump('${it.id}')">
            <span class="rank">${n+1}</span><span class="fs">${esc(it.subject)}</span>
            <span class="t">${esc(it.project||it.kind||"")}</span></div>`));
     }
@@ -393,23 +449,27 @@ function render(){
     const keys=[...new Set(vis.map(i=>cs(i.id).assignee||"hadassa"))].sort();
     keys.forEach(k=>group(b,k==="hadassa"?"Me":k[0].toUpperCase()+k.slice(1),
       sortItems(vis.filter(i=>(cs(i.id).assignee||"hadassa")===k))));
-  } else {
+  } else if(VIEW==="done"){
     group(b,"Completed",sortItems(vis));
+  } else {
+    group(b,"Judged not needed — with your reason",sortItems(vis));
   }
   wire();
 }
 const sec=(t,n)=>`<div class="sec"><h2>${esc(t)}</h2><span class="cnt">${n}</span><span class="line"></span></div>`;
 function group(b,title,arr){
   if(!arr.length)return;
-  const openN=arr.filter(i=>!cs(i.id).done).length;
+  const openN=arr.filter(i=>stat(i.id)==="open").length;
   b.insertAdjacentHTML("beforeend",sec(title,openN+" open / "+arr.length));
   arr.forEach(it=>b.insertAdjacentHTML("beforeend",card(it)));
 }
 
 function card(it){
   const s=cs(it.id), l=lane(it), done=!!s.done;
-  const cls=["card",done?"done":"",(!done&&l==="urgent")?"urgent":"",
-             (!done&&s.defer)?"deferred":"",SEL.has(it.id)?"sel":"",
+  const drop=isDrop(it.id);
+  const cls=["card",done?"done":"",drop?"dismissed":"",
+             (!done&&!drop&&l==="urgent")?"urgent":"",
+             (!done&&!drop&&s.defer)?"deferred":"",SEL.has(it.id)?"sel":"",
              OPEN.has(it.id)?"open":""].filter(Boolean).join(" ");
   let tags=`<span class="t src">${esc(it.source||"")}</span>`;
   if(it.project) tags+=`<span class="t prj" onclick="setView('project')">${esc(it.project)}</span>`;
@@ -423,7 +483,7 @@ function card(it){
 
   return `<div class="${cls}" id="c-${it.id}" data-id="${it.id}">
     <div class="chead">
-      <span class="cbox"><input type="checkbox" ${done?"checked":""} data-done="${it.id}"></span>
+      <span class="cbox"><input type="checkbox" ${done?"checked":""} ${drop?"disabled":""} data-done="${it.id}"></span>
       <div class="ctitle">
         <div class="subj" contenteditable="true" data-subj="${it.id}">${esc(it.subject)}</div>
         ${it.meta?`<div class="metaline">${esc(it.meta)}</div>`:""}
@@ -432,6 +492,7 @@ function card(it){
     </div>
     ${it.action?`<div class="act"><div class="lbl">Your action</div>
        <div class="txt" contenteditable="true" data-act="${it.id}">${esc(it.action)}</div></div>`:""}
+    ${drop?`<div class="dismissbox"><div class="lbl">Not needed — your reason</div>${esc(s.dismiss_reason||"")}</div>`:""}
     ${s.note?`<div class="notebox"><div class="lbl">Your note</div>${esc(s.note)}</div>`:""}
     <div class="crow">
       <button class="mini" data-toggle="${it.id}">${OPEN.has(it.id)?"▾ Less":"▸ Details"}</button>
@@ -446,7 +507,10 @@ function card(it){
       <select class="mini" data-lane="${it.id}">
         ${Object.entries(LANE_LABEL).map(([k,v])=>`<option value="${k}" ${(it.lane===k)?"selected":""}>${v}</option>`).join("")}
       </select>
-      <button class="mini ${SEL.has(it.id)?"on":""}" data-sel="${it.id}">${SEL.has(it.id)?"✓ selected":"select"}</button>
+      ${drop
+        ? `<button class="mini" data-undrop="${it.id}">↩ Still needed</button>`
+        : `<button class="mini" data-drop="${it.id}">🚫 Not needed</button>`}
+      <button class="mini ${SEL.has(it.id)?"on":""}" data-sel="${it.id}">${SEL.has(it.id)?"✓ picked for bulk":"☐ pick for bulk"}</button>
     </div>
     <div class="detail">
       ${it.ctxSum?`<h4>Context</h4><p>${esc(it.ctxSum)}</p>`:""}
@@ -481,9 +545,10 @@ function renderViews(){
   const v=document.getElementById("views");
   v.innerHTML=VIEWS.map(([k,label])=>{
     let n;
-    if(k==="done") n=ITEMS.filter(i=>cs(i.id).done).length;
-    else if(k==="today") n=ITEMS.filter(i=>!cs(i.id).done&&["urgent","action"].includes(lane(i))).length;
-    else n=ITEMS.filter(i=>!cs(i.id).done).length;
+    if(k==="done") n=ITEMS.filter(i=>isDone(i.id)).length;
+    else if(k==="dropped") n=ITEMS.filter(i=>isDrop(i.id)).length;
+    else if(k==="today") n=ITEMS.filter(i=>stat(i.id)==="open"&&["urgent","action"].includes(lane(i))).length;
+    else n=ITEMS.filter(i=>stat(i.id)==="open").length;
     return `<button class="vtab ${VIEW===k?"on":""}" onclick="setView('${k}')">${label}<span class="n">${n}</span></button>`;
   }).join("");
 }
@@ -493,18 +558,21 @@ function renderSrcChips(){
     `<button class="chip ${FILT.src.has(s)?"on":""}" onclick="toggleSrc('${s}')">${esc(s)}</button>`).join("");
 }
 function renderTiles(){
-  const open=ITEMS.filter(i=>!cs(i.id).done);
+  const open=ITEMS.filter(i=>!isDone(i.id)&&!isDrop(i.id));
   const urgent=open.filter(i=>lane(i)==="urgent").length;
   const waiting=open.filter(i=>cs(i.id).assignee&&cs(i.id).assignee!=="hadassa").length;
   const overdue=open.filter(i=>i.due&&i.due<todayStr()).length;
-  const doneN=ITEMS.filter(i=>cs(i.id).done).length;
-  const pct=ITEMS.length?Math.round(doneN/ITEMS.length*100):0;
+  const doneN=ITEMS.filter(i=>isDone(i.id)).length;
+  const dropN=ITEMS.filter(i=>isDrop(i.id)).length;
+  const denom=ITEMS.length-dropN;   /* dismissing work must not inflate progress */
+  const pct=denom?Math.round(doneN/denom*100):0;
   document.getElementById("tiles").innerHTML=`
     ${tile("Open",open.length,"","setView('board')")}
     ${tile("Urgent",urgent,urgent?"bad":"","setView('board')")}
     ${tile("Waiting on others",waiting,"warn","setView('people')")}
     ${tile("Overdue",overdue,overdue?"bad":"","toggleFilter('dueSoon')")}
-    ${tile("Done today",doneN,"ok","setView('done')")}`;
+    ${tile("Done today",doneN,"ok","setView('done')")}
+    ${dropN?tile("Not needed",dropN,"","setView('dropped')"):""}`;
   const c=2*Math.PI*16;
   document.getElementById("ringfg").setAttribute("stroke-dasharray",(pct/100*c)+" "+c);
   document.getElementById("ringtxt").textContent=pct+"%";
@@ -521,6 +589,11 @@ function wire(){
   document.querySelectorAll("[data-toggle]").forEach(el=>el.onclick=()=>{
     const id=el.getAttribute("data-toggle");
     OPEN.has(id)?OPEN.delete(id):OPEN.add(id); render();
+  });
+  document.querySelectorAll("[data-drop]").forEach(el=>el.onclick=()=>openDismiss(el.getAttribute("data-drop")));
+  document.querySelectorAll("[data-undrop]").forEach(el=>el.onclick=()=>{
+    const id=el.getAttribute("data-undrop"); undismiss(id).then(()=>render());
+    toast("Back on the board");
   });
   document.querySelectorAll("[data-sel]").forEach(el=>el.onclick=()=>{
     const id=el.getAttribute("data-sel");
@@ -627,6 +700,40 @@ function toast(msg){ const t=document.getElementById("toast");
   t.classList.add("show"); clearTimeout(tt); tt=setTimeout(hideToast,4200); }
 function hideToast(){ document.getElementById("toast").classList.remove("show"); }
 
+/* ════════ "not needed" — always with a recorded reason ════════ */
+let DROP_ID=null;
+const QUICK_REASONS=["Already handled by Rafael","Already handled by the client",
+  "No longer relevant — scope changed","Duplicate of another item",
+  "Raised in error / bad information","Decided against it"];
+function openDismiss(id){
+  DROP_ID=id; const it=byId(id);
+  document.getElementById("dmodal-subj").textContent=it?it.subject:"";
+  document.getElementById("dmodal-why").value="";
+  document.getElementById("dmodal-err").style.display="none";
+  document.getElementById("dmodal-quick").innerHTML=QUICK_REASONS.map(r=>
+    `<button class="chip" data-qr="${esc(r)}">${esc(r)}</button>`).join("");
+  document.querySelectorAll("[data-qr]").forEach(b=>b.onclick=()=>{
+    const w=document.getElementById("dmodal-why");
+    w.value=b.getAttribute("data-qr"); w.focus(); });
+  document.getElementById("scrim").classList.add("show");
+  document.getElementById("dmodal").classList.add("show");
+  setTimeout(()=>document.getElementById("dmodal-why").focus(),40);
+}
+function closeDismiss(){
+  DROP_ID=null;
+  document.getElementById("dmodal").classList.remove("show");
+  if(!document.getElementById("palette").classList.contains("show"))
+    document.getElementById("scrim").classList.remove("show");
+}
+function confirmDismiss(){
+  const why=document.getElementById("dmodal-why").value.trim();
+  if(!why){ document.getElementById("dmodal-err").style.display="block";
+            document.getElementById("dmodal-why").focus(); return; }
+  const id=DROP_ID;
+  dismiss(id,why).then(()=>{ closeDismiss(); render();
+    toast("Marked not needed — reason recorded for the daily report"); }).catch(()=>{});
+}
+
 /* ════════ command palette ════════ */
 function openPalette(){ document.getElementById("scrim").classList.add("show");
   document.getElementById("palette").classList.add("show");
@@ -663,8 +770,9 @@ document.addEventListener("keydown",e=>{
   if(typing(e)) return;
   const vis=sortItems(visible());
   if(e.key==="/"){ e.preventDefault(); document.getElementById("q").focus(); return; }
-  if(e.key==="?"){ alert("↑/↓ or j/k  move\nx  done\nd  defer (no time)\na  assign to Rafael\ne  expand\nEnter  open details\n/  search\n⌘K  command palette\nu  undo"); return; }
+  if(e.key==="?"){ alert("↑/↓ or j/k  move\nx  done\nd  defer (no time)\na  assign to Rafael\ne  expand\nEnter  open details\n/  search\n⌘K  command palette\nu  undo\nn  not needed (asks why)"); return; }
   if(e.key==="u"){ undo(); return; }
+  if(e.key==="n"){ const v=sortItems(visible()); if(v[CURSOR]) openDismiss(v[CURSOR].id); return; }
   if(["j","ArrowDown"].includes(e.key)){ e.preventDefault(); CURSOR=Math.min(CURSOR+1,vis.length-1); focusCursor(vis); }
   if(["k","ArrowUp"].includes(e.key)){ e.preventDefault(); CURSOR=Math.max(CURSOR-1,0); focusCursor(vis); }
   const cur=vis[CURSOR]; if(!cur) return;
