@@ -1,0 +1,19 @@
+[theme]
+# RFS design system 2026-07-13 — same tokens as the finance dashboard so the
+# two apps read as one product.
+primaryColor = "#7b68ee"
+backgroundColor = "#f5f6fb"
+secondaryBackgroundColor = "#ffffff"
+textColor = "#1c2130"
+font = "sans serif"
+
+[client]
+toolbarMode = "minimal"
+
+[server]
+# This machine only. The board carries client names, amounts and her private
+# notes — it must never be reachable from the LAN.
+address = "127.0.0.1"
+port = 8789
+headless = true
+fileWatcherType = "none"

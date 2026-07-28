@@ -1,0 +1,8 @@
+# Her actual board — client names, amounts, private notes. Never commit.
+pm_state.json
+pm_state.json.bak
+*.tmp
+.pm_state.lock
+logs/
+__pycache__/
+.pytest_cache/
