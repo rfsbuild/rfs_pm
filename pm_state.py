@@ -65,10 +65,45 @@ ACTIONABLE_LANES = ("urgent", "action", "week", "rafael", "guilherme", "claude")
 
 DEFER_REASONS = {
     "no-time": "⏰ No time today",
-    "waiting": "👤 Waiting for someone",
     "later-week": "📅 Later this week",
     "needs-rafael": "⚪ Needs Rafael",
 }
+
+# ── Waiting on someone (2026-07-29) ────────────────────────────────────────
+# "Waiting for someone" USED to be a defer reason — a tag that left the card on
+# the main board, sank it one rank, and after 3 days shouted URGENT at her for
+# something she still could not do. It recorded neither WHO she was waiting on
+# nor what she had already tried, and `note` is a single string, so every chase
+# overwrote the previous one.
+#
+# Her ask, verbatim: "the flow to keep updating a task without closing … if i
+# chose 'waiting for someone' it goes to a separate space for me to keep
+# updating until it's done, so I know I also have to keep track of."
+#
+# So waiting is now a first-class BLOCK on the item, not a defer reason:
+#
+#   waiting = {
+#     "who":      str,   # required — a name. "waiting" with no owner is a wish.
+#     "what":     str,   # optional — what specifically is owed to us
+#     "since":    iso,   # when it entered the waiting space
+#     "nudge_on": date,  # optional — when to chase again; past = it surfaces red
+#     "log":      [ {"at": iso, "text": str} ],   # APPEND-ONLY chase history
+#   }
+#
+# Design constraints that are load-bearing:
+#   · It stays `status == "open"` — the item is not done and must never read as
+#     done. Waiting is a sub-state of open, so the roll, the archive and the
+#     daily report keep working unchanged.
+#   · It leaves the Open count and the main board (her call), which means the
+#     ONLY thing standing between a waiting item and silent rot is `nudge_on`.
+#     That is why waiting_needing_nudge() exists and why the Today view shows
+#     the overdue-nudge strip. A separate space without a resurfacing rule is a
+#     drawer things die in.
+#   · The log is APPEND-ONLY by construction — there is no edit or delete path,
+#     in this module or over HTTP. The value of the record is that it can prove
+#     she chased MGP three times; a mutable log cannot prove anything.
+WAITING_REQUIRED = ("who",)
+DEFAULT_NUDGE_DAYS = 3
 
 ASSIGNEES = ("hadassa", "rafael", "guilherme", "claude", "alice")
 
@@ -100,6 +135,8 @@ ITEM_FIELDS = (
     # `claude_done` on an actionable card is a smell, not a neutral state.
     "claude_done",
     "hadassa_todo",
+    # ── waiting-on space (2026-07-29) — see the WAITING block above ──
+    "waiting",
 )
 
 # status values. `dismissed` = "this task isn't needed" — it is NOT the same as
@@ -243,6 +280,8 @@ def new_item(id, subject, **kw):
         # checklists side by side rather than one undifferentiated blob.
         "claude_done": [],
         "hadassa_todo": [],
+        # None = not waiting on anyone. See the WAITING block near the top.
+        "waiting": None,
     }
     for k, v in kw.items():
         if k in ITEM_FIELDS:
@@ -273,7 +312,58 @@ def normalize(state):
             it["defer_days"] = int(it.get("defer_days") or 0)
         except (TypeError, ValueError):
             it["defer_days"] = 0
+        _migrate_waiting_defer(it)
+        _normalize_waiting(it)
     return state
+
+
+def _migrate_waiting_defer(it):
+    """Legacy `defer == "waiting"` → a real waiting block.
+
+    Two live cards carried it when the space was built (South Shore #1567 and
+    Sky Tech's missing COI). Migrating in normalize() rather than a one-shot
+    script means an old backup, an old history file or a stale ingest payload
+    all heal on load instead of quietly landing in neither space.
+
+    `who` is UNKNOWN, not a guess. The old tag never recorded a person, so
+    inventing one here would fabricate a fact about her work — the card asks her
+    for the name instead, and `_needs_who` is what the UI flags.
+    """
+    if it.get("defer") != "waiting":
+        return
+    it["defer"] = None
+    it["defer_days"] = 0
+    if not it.get("waiting"):
+        it["waiting"] = {
+            "who": "",
+            "_needs_who": True,
+            "what": "",
+            "since": it.get("last_seen") or it.get("first_seen") or _now_iso(),
+            "nudge_on": None,
+            "log": [{"at": it.get("last_seen") or _now_iso(),
+                     "text": "Carried over from the old “waiting for someone” "
+                             "tag — who we are waiting on was never recorded."}],
+        }
+
+
+def _normalize_waiting(it):
+    """Shape-heal a waiting block so a malformed one can't crash the board."""
+    w = it.get("waiting")
+    if not w:
+        it["waiting"] = None
+        return
+    if not isinstance(w, dict):
+        it["waiting"] = None
+        return
+    w.setdefault("who", "")
+    w.setdefault("what", "")
+    w.setdefault("since", _now_iso())
+    w.setdefault("nudge_on", None)
+    log = w.get("log")
+    if not isinstance(log, list):
+        log = []
+    w["log"] = [e for e in log if isinstance(e, dict) and (e.get("text") or "").strip()]
+    w["_needs_who"] = not (w.get("who") or "").strip()
 
 
 def get_item(state, item_id):
@@ -304,6 +394,77 @@ def effective_lane(it):
     if int(it.get("defer_days") or 0) >= 3:
         lane = "urgent"
     return lane
+
+
+def is_waiting(it):
+    """In the waiting space — blocked on someone else, and still not done.
+
+    The `status == "open"` half matters: once she marks a waiting item done it
+    must leave the waiting space immediately, and the block is kept only as the
+    record of how it got there.
+    """
+    return bool(it.get("waiting")) and it.get("status") == "open"
+
+
+def waiting_items(state):
+    return [it for it in state["items"] if is_waiting(it)]
+
+
+def nudge_due(it, now=None):
+    """True when the chase date has arrived or passed. No date = never due."""
+    w = it.get("waiting") or {}
+    on = w.get("nudge_on")
+    return bool(on) and str(on) <= _today(now)
+
+
+def days_since_update(it, now=None):
+    """Days since the last log line (or since it entered waiting if never logged).
+
+    This is the honest staleness measure: `age` counts days on the board, which
+    keeps climbing even on an item she chased this morning.
+    """
+    w = it.get("waiting") or {}
+    last = (w.get("log") or [{}])[-1].get("at") or w.get("since")
+    dt = parse_dt(last)
+    if dt is None:
+        return 0
+    today = datetime.datetime.fromisoformat(_today(now))
+    return max(0, (today.date() - dt.date()).days)
+
+
+def waiting_needing_nudge(state, now=None):
+    """Waiting items that need her now — chase date arrived, OR no owner recorded.
+
+    THE safeguard for the whole feature. Because waiting items leave the main
+    board, this list is the only thing that brings one back into her day.
+
+    A card with no `who` counts as needing her even with no date: it cannot be
+    chased at all until it is named, which makes it the most stuck kind of
+    blocked, not the least. The UI's tile applies exactly this rule — a count and
+    the list it opens must be computed by one definition, or they drift.
+    """
+    due = [it for it in waiting_items(state)
+           if nudge_due(it, now) or (it.get("waiting") or {}).get("_needs_who")]
+    due.sort(key=lambda it: ((it.get("waiting") or {}).get("nudge_on") or "9999",
+                             -days_since_update(it, now)))
+    return due
+
+
+def ordered_waiting(state, now=None):
+    """Display order for the waiting space: needs-a-nudge first, then stalest.
+
+    An item with no `who` recorded sorts to the very top — it cannot be chased
+    at all until she names the person, so it is the most broken kind of blocked.
+    """
+    def key(it):
+        w = it.get("waiting") or {}
+        return (
+            0 if w.get("_needs_who") else 1,
+            0 if nudge_due(it, now) else 1,
+            -days_since_update(it, now),
+            (w.get("who") or "").lower(),
+        )
+    return sorted(waiting_items(state), key=key)
 
 
 def sink_rank(it):
@@ -349,6 +510,9 @@ def do_today(state, limit=5):
     live = [
         it for it in state["items"]
         if it.get("status") == "open" and effective_lane(it) in ("urgent", "action")
+        # Blocked on someone else is not a thing she can commit to finishing
+        # today. It belongs in the waiting space, chased on its nudge date.
+        and not is_waiting(it)
     ]
     live.sort(key=lambda it: (
         0 if effective_lane(it) == "urgent" else 1,
@@ -365,16 +529,25 @@ def counts(state):
     actionable = [it for it in state["items"] if effective_lane(it) in ACTIONABLE_LANES]
     done = [it for it in actionable if it.get("status") == "done"]
     dismissed = [it for it in actionable if it.get("status") == "dismissed"]
+    waiting = [it for it in actionable if is_waiting(it)]
     # A dismissed item is neither done nor outstanding, so it leaves the
     # denominator entirely — otherwise the day's progress bar would be gamed by
     # dismissing work rather than doing it.
-    denom = len(actionable) - len(dismissed)
+    #
+    # Waiting leaves it too, for the opposite reason: it is real work that is
+    # genuinely not hers to move today, so counting it as outstanding makes the
+    # day look unfinishable no matter what she does. The anti-gaming control for
+    # waiting is not the denominator — it is that every waiting item must name a
+    # person and shows its own age and chase count in its own tab.
+    denom = len(actionable) - len(dismissed) - len(waiting)
     return {
         "per_lane": per_lane,
         "total": len(state["items"]),
         "actionable": len(actionable),
         "done": len(done),
         "dismissed": len(dismissed),
+        "waiting": len(waiting),
+        "waiting_due": len(waiting_needing_nudge(state)),
         "open": denom - len(done),
         "pct": round(len(done) / denom * 100) if denom else 0,
     }
@@ -395,7 +568,16 @@ def set_done(item_id, done, path=STATE_PATH, now=None):
 
 def set_defer(item_id, reason, path=STATE_PATH, now=None):
     """reason=None clears the defer. Each *distinct* defer bumps defer_days,
-    which is what drives the 3-day escalation to urgent."""
+    which is what drives the 3-day escalation to urgent.
+
+    "waiting" is refused here for the same reason apply_click refuses it: it is
+    its own space now, and it needs a name. Guarding only the HTTP path would
+    leave every script free to recreate the ownerless-waiting state.
+    """
+    if reason == "waiting":
+        return {"error": "“waiting for someone” is now its own space — "
+                         "use set_waiting(item_id, who=…)"}
+
     def _fn(state):
         it = get_item(state, item_id)
         if it is None:
@@ -448,6 +630,134 @@ def set_followup(item_id, text, when, path=STATE_PATH, now=None):
             return False
         it["followup"] = {"text": text, "when": when, "set_at": _now_iso(now)} if text else None
         return True
+    return _mutate(_fn, path, now)[1]
+
+
+# ── the waiting space ──
+
+def default_nudge(now=None, days=DEFAULT_NUDGE_DAYS):
+    d = (now or datetime.datetime.now().astimezone()).date()
+    return (d + datetime.timedelta(days=days)).isoformat()
+
+
+def set_waiting(item_id, who, what="", nudge_on=None, first_update=None,
+                path=STATE_PATH, now=None):
+    """Move an item into the waiting space.
+
+    `who` is REQUIRED and rejected when blank. The entire failure mode of the
+    old defer tag was that it recorded no owner, so a month later she had a pile
+    of cards she was waiting on *somebody* for. A waiting item without a name is
+    not trackable, so the transition itself refuses.
+
+    Entering waiting CLEARS any defer: they are different statements ("no time
+    today" is about her, "waiting on Marconio" is about him), and leaving both
+    set would let the 3-day defer escalation drag the card back to Urgent for
+    something she still cannot do.
+    """
+    who = (who or "").strip()
+    if not who:
+        return {"error": "name who you are waiting on — a waiting item with no "
+                         "owner can never be chased"}
+
+    def _fn(state):
+        it = get_item(state, item_id)
+        if it is None:
+            return None
+        existing = it.get("waiting") or {}
+        log = list(existing.get("log") or [])
+        text = (first_update or "").strip()
+        if text:
+            log.append({"at": _now_iso(now), "text": text})
+        it["waiting"] = {
+            "who": who,
+            "what": (what or "").strip(),
+            "since": existing.get("since") or _now_iso(now),
+            "nudge_on": nudge_on or default_nudge(now),
+            "log": log,
+            "_needs_who": False,
+        }
+        it["defer"], it["defer_days"] = None, 0
+        # An open item can be waiting; a done one cannot. Re-opening here would
+        # be wrong the other way, so only the done→open direction is refused.
+        if it.get("status") == "dismissed":
+            it["status"] = "open"
+            it["dismiss_reason"], it["dismissed_at"] = None, None
+        return {"ok": True, "id": item_id, "waiting": it["waiting"]}
+    return _mutate(_fn, path, now)[1]
+
+
+def add_waiting_update(item_id, text, nudge_on=None, path=STATE_PATH, now=None):
+    """Append one dated line to the chase log. APPEND-ONLY — nothing is replaced.
+
+    `nudge_on` is optional and, when given, re-arms the chase date. That pairing
+    is deliberate: the moment she records "he says Friday" is exactly the moment
+    the next nudge date is known, and asking for it in a second interaction is
+    how the date ends up never being set.
+
+    There is no edit and no delete, here or over HTTP. A log that can be
+    rewritten cannot serve as evidence that she chased three times.
+    """
+    text = (text or "").strip()
+    if not text:
+        return {"error": "an update needs some text"}
+
+    def _fn(state):
+        it = get_item(state, item_id)
+        if it is None:
+            return None
+        w = it.get("waiting")
+        if not w:
+            return {"error": "this item is not in the waiting space"}
+        w.setdefault("log", []).append({"at": _now_iso(now), "text": text})
+        if nudge_on:
+            w["nudge_on"] = nudge_on
+        return {"ok": True, "id": item_id, "updates": len(w["log"]),
+                "nudge_on": w.get("nudge_on")}
+    return _mutate(_fn, path, now)[1]
+
+
+def set_waiting_who(item_id, who, path=STATE_PATH, now=None):
+    """Fill in the missing owner on a migrated card. Blank is still refused."""
+    who = (who or "").strip()
+    if not who:
+        return {"error": "name who you are waiting on"}
+
+    def _fn(state):
+        it = get_item(state, item_id)
+        if it is None or not it.get("waiting"):
+            return None
+        it["waiting"]["who"] = who
+        it["waiting"]["_needs_who"] = False
+        return {"ok": True, "id": item_id, "who": who}
+    return _mutate(_fn, path, now)[1]
+
+
+def clear_waiting(item_id, reason=None, path=STATE_PATH, now=None):
+    """Unblock — back onto the main board, still open.
+
+    The waiting block is DROPPED but its log is preserved into `note` first,
+    because that history is the answer to "why did this take three weeks?" and
+    the board is the only place she will ever look for it.
+    """
+    def _fn(state):
+        it = get_item(state, item_id)
+        if it is None:
+            return None
+        w = it.get("waiting") or {}
+        if not w:
+            return {"error": "this item is not in the waiting space"}
+        lines = ["Was waiting on %s%s:" % (w.get("who") or "someone",
+                                          " — " + w["what"] if w.get("what") else "")]
+        for e in (w.get("log") or []):
+            lines.append("  %s  %s" % ((e.get("at") or "")[:16].replace("T", " "),
+                                       e.get("text")))
+        if (reason or "").strip():
+            lines.append("  %s  unblocked: %s" % (_now_iso(now)[:16].replace("T", " "),
+                                                  reason.strip()))
+        history = "\n".join(lines)
+        it["note"] = (it["note"] + "\n\n" + history) if it.get("note") else history
+        it["waiting"] = None
+        return {"ok": True, "id": item_id}
     return _mutate(_fn, path, now)[1]
 
 
@@ -546,6 +856,14 @@ def apply_click(item_id, payload, path=STATE_PATH, now=None):
             it["assignee"] = None if who in (None, "", "hadassa") else who
         if "defer" in payload:
             new = payload["defer"] or None
+            # "waiting" is no longer a defer reason — it is its own space, and
+            # entering it requires a name. A stale browser tab (or an old script)
+            # can still send it, so refuse the write and tell the caller what to
+            # do instead of silently storing a reason the board no longer renders.
+            if new == "waiting":
+                return {"error": "“waiting for someone” is now its own space — "
+                                 "POST /api/item/<id>/waiting with who you are "
+                                 "waiting on", "needs_waiting": True, "id": item_id}
             if new != it.get("defer"):
                 it["defer"] = new
                 it["defer_days"] = (int(it.get("defer_days") or 0) + 1) if new else 0
@@ -562,6 +880,7 @@ def apply_click(item_id, payload, path=STATE_PATH, now=None):
             "done_at": it.get("done_at"),
             "defer_days": it.get("defer_days"),
             "lane": effective_lane(it),
+            "waiting": it.get("waiting"),
         }
     return _mutate(_fn, path, now)[1]
 
@@ -634,6 +953,10 @@ def roll_forward(to_date=None, path=STATE_PATH, now=None):
             "dismissed": dismissed,
             "archived": len(finished),
             "archive_file": archived_to,
+            # Logged so the roll never hides how much of the board is blocked on
+            # other people — a day that carries 12 waiting items is a different
+            # day from one that carries 12 items she can actually work.
+            "waiting": sum(1 for it in carried if is_waiting(it)),
         }
         state["items"] = carried
         state["brief_date"] = target

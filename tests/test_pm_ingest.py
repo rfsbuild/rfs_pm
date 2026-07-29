@@ -52,6 +52,19 @@ def test_collector_may_not_write_her_fields():
         assert any("which is hers" in e for e in errs), f
 
 
+def test_collector_may_not_write_the_waiting_chase_log():
+    """The strongest case of "hers" — the log is evidence, not content.
+
+    A briefing that could set `waiting` could rewrite the record of how many
+    times she chased someone. Asserted separately from the loop above because
+    this one protects an append-only guarantee, not just an edit.
+    """
+    errs = I.validate([{"id": "x", "subject": "s",
+                        "waiting": {"who": "Rafael", "log": [{"at": "now",
+                                                              "text": "made up"}]}}])
+    assert any("which is hers" in e for e in errs)
+
+
 def test_missing_id_or_subject_is_rejected():
     assert any("no string `id`" in e for e in I.validate([{"subject": "s"}]))
     assert any("no `subject`" in e for e in I.validate([{"id": "x"}]))

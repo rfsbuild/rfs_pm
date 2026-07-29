@@ -48,8 +48,11 @@ def test_roll_forward_drops_done_and_ages_the_rest(path):
 
 
 def test_roll_forward_escalates_after_three_defer_days(path):
-    S.set_defer("d", "no-time", path=path)   # 2
-    S.set_defer("d", "waiting", path=path)   # 3
+    # Three DISTINCT defer reasons. This used to walk through "waiting", which
+    # is no longer a defer reason at all (it became its own space on 2026-07-29),
+    # so the sequence now uses the three that remain.
+    S.set_defer("d", "no-time", path=path)      # 2
+    S.set_defer("d", "later-week", path=path)   # 3
     S.roll_forward("2026-07-29", path=path)
     st, _ = S.load_state(path)
     d = S.get_item(st, "d")

@@ -126,7 +126,13 @@ def draft_is_sendable(d):
 # Fields that are HERS. A briefing that tries to set one is rejected outright
 # rather than obeyed: a collector must never be able to mark her work done.
 HER_FIELDS = ("status", "done_at", "did", "note", "assignee", "defer",
-              "defer_days", "dismiss_reason", "dismissed_at", "followup")
+              "defer_days", "dismiss_reason", "dismissed_at", "followup",
+              # `waiting` (2026-07-29) is hers for a stronger reason than the
+              # rest: its `log` is append-only *evidence* that she chased someone
+              # three times. A collector that could write the block could rewrite
+              # that history, so the ingest refuses it outright — the space is
+              # only reachable through set_waiting/add_waiting_update.
+              "waiting")
 
 
 # Control keys a briefing may carry that are not item fields. Anything else

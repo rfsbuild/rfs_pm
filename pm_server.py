@@ -61,6 +61,12 @@ def to_ui(state):
             "note": it.get("note"),
             "project": it.get("project"),
             "followup": it.get("followup"),
+            # The waiting space (2026-07-29). In `clicks` and not `_CONTENT_MAP`
+            # because it is HER record, not collector output — an ingest run must
+            # never be able to overwrite a chase log.
+            "waiting": it.get("waiting"),
+            "waiting_due": S.nudge_due(it),
+            "waiting_stale_days": S.days_since_update(it) if it.get("waiting") else 0,
         }
     return items, clicks
 
@@ -145,6 +151,32 @@ class Handler(BaseHTTPRequestHandler):
 
         if path.startswith("/api/item/"):
             rest = path[len("/api/item/"):]
+            # ── the waiting space ──
+            # Deliberately NOT folded into apply_click: entering waiting requires
+            # a name, and an update must APPEND. Both are refusals that the
+            # generic click endpoint has no way to express, and there is
+            # intentionally no route that edits or deletes a log line.
+            if rest.endswith("/waiting/update"):
+                iid = rest[: -len("/waiting/update")]
+                res = S.add_waiting_update(iid, body.get("text"),
+                                           nudge_on=body.get("nudge_on") or None)
+                if res is None:
+                    return self._send(404, {"error": "no such item"})
+                return self._send(400 if res.get("error") else 200, res)
+            if rest.endswith("/waiting"):
+                iid = rest[: -len("/waiting")]
+                if body.get("clear"):
+                    res = S.clear_waiting(iid, reason=body.get("reason"))
+                elif body.get("who_only"):
+                    res = S.set_waiting_who(iid, body.get("who"))
+                else:
+                    res = S.set_waiting(iid, body.get("who"),
+                                        what=body.get("what") or "",
+                                        nudge_on=body.get("nudge_on") or None,
+                                        first_update=body.get("first_update") or None)
+                if res is None:
+                    return self._send(404, {"error": "no such item"})
+                return self._send(400 if res.get("error") else 200, res)
             if rest.endswith("/patch"):
                 iid = rest[: -len("/patch")]
                 ok = S.patch_content(iid, body)

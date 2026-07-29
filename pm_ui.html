@@ -112,6 +112,48 @@ a{color:var(--brand-deep);}
 .modal .err{color:var(--bad);font-size:12.5px;padding:6px 18px 0;display:none;}
 .card.urgent{border-left:3px solid var(--bad);}
 .card.deferred{border-left:3px solid var(--amber);}
+
+/* ── the waiting space (2026-07-29) ──
+   Visually distinct from a deferred card on purpose: deferred is "not today",
+   waiting is "not mine". A waiting card is read, not worked, so the chase log
+   gets the vertical space and the controls stay small. */
+.card.waiting{border-left:3px solid var(--brand);}
+.card.waiting.nudge{border-left:3px solid var(--bad);}
+.wbox{margin:0 14px 12px;background:#faf9ff;border:1px solid var(--rule);
+  border-left:3px solid var(--brand);border-radius:8px;padding:10px 12px;}
+.wbox.nudge{background:var(--bad-bg);border-left-color:var(--bad);}
+.wbox .whead{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;}
+.wbox .who{font-weight:700;font-size:14px;}
+.wbox .wmeta{font-size:12px;color:var(--muted);}
+.wbox .wmeta b{color:var(--body);}
+.wbox .wnudge{font-size:11px;font-weight:700;padding:1px 7px;border-radius:20px;
+  background:var(--brand-soft);color:var(--brand-deep);white-space:nowrap;}
+.wbox .wnudge.late{background:var(--bad);color:#fff;}
+.wbox .wwhat{font-size:13px;color:var(--body);margin-top:3px;}
+/* The log. A left rule and one line per entry — it must read as a timeline at a
+   glance, because "how many times have I chased this" is the question it answers. */
+.wlog{margin:9px 0 0;padding:0 0 0 11px;border-left:2px solid var(--rule);list-style:none;}
+.wlog li{font-size:13px;line-height:1.45;color:var(--body);padding:2px 0;}
+.wlog li .lt{color:var(--faint);font-size:11.5px;font-variant-numeric:tabular-nums;
+  margin-right:7px;white-space:nowrap;}
+.wlog li:last-child{color:var(--ink);}
+.wlog .none{font-size:12.5px;color:var(--muted);font-style:italic;}
+.wadd{display:flex;gap:6px;align-items:center;margin-top:9px;flex-wrap:wrap;}
+.wadd input[type=text]{flex:1;min-width:220px;border:1px solid var(--rule);
+  background:var(--card);border-radius:8px;padding:7px 10px;font-size:13.5px;}
+.wadd input[type=text]:focus{outline:none;border-color:var(--brand);
+  box-shadow:0 0 0 3px var(--brand-soft);}
+.wadd input[type=date]{border:1px solid var(--rule);background:var(--card);
+  border-radius:8px;padding:6px 8px;font-size:12.5px;color:var(--muted);}
+.wadd .lbl2{font-size:11px;color:var(--muted);font-weight:600;}
+.whowarn{margin-top:8px;font-size:12.5px;color:var(--bad);font-weight:600;}
+/* The strip that drags overdue chases back into her day. Waiting items leave the
+   main board, so without this they would rot unseen. */
+.nudgestrip{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  background:var(--bad-bg);border:1px solid #f3cdc8;border-left:3px solid var(--bad);
+  border-radius:var(--radius);padding:10px 13px;margin:0 0 14px;}
+.nudgestrip .nt{font-size:13.5px;font-weight:650;color:#8f2b20;}
+.nudgestrip .nn{font-size:12.5px;color:#a4453a;}
 .chead{display:flex;gap:11px;padding:12px 14px;align-items:flex-start;}
 .cbox{margin-top:2px;flex:0 0 auto;}
 .cbox input{width:17px;height:17px;accent-color:var(--brand);cursor:pointer;}
@@ -344,13 +386,41 @@ kbd{background:var(--rule-soft);border:1px solid var(--rule);border-bottom-width
     <button class="pbtn" onclick="confirmDismiss()">Mark not needed</button>
   </div>
 </div>
+<!-- Entering the waiting space. `who` is required by the server too — this modal
+     is the convenience, not the control. The nudge date is pre-filled rather
+     than optional-and-empty: an untracked waiting item is the exact thing this
+     whole feature exists to prevent. -->
+<div class="modal" id="wmodal">
+  <h3>👤 Waiting on someone</h3>
+  <div class="sub" id="wmodal-subj"></div>
+  <div style="padding:0 18px 4px">
+    <div class="wadd" style="margin-top:0">
+      <input type="text" id="wmodal-who" placeholder="Who are you waiting on?  e.g. Marconio (MGP)">
+    </div>
+    <div class="quick" id="wmodal-quick" style="padding:8px 0 0"></div>
+    <div class="wadd">
+      <input type="text" id="wmodal-what" placeholder="What do they owe you?  (optional)">
+    </div>
+    <div class="wadd">
+      <span class="lbl2">Chase again on</span>
+      <input type="date" id="wmodal-nudge">
+      <span class="lbl2" id="wmodal-nudgehint" style="color:var(--faint)"></span>
+    </div>
+  </div>
+  <textarea id="wmodal-first" placeholder="First update — what you've already done. e.g. Emailed asking for the COI, no reply yet."></textarea>
+  <div class="err" id="wmodal-err">Name who you are waiting on — otherwise it can never be chased.</div>
+  <div class="mfoot">
+    <button class="mini" onclick="closeWaiting()">Cancel</button>
+    <button class="pbtn" onclick="confirmWaiting()">Move to Waiting on</button>
+  </div>
+</div>
 <div class="toast" id="toast"><span id="toasttxt"></span><button id="toastbtn" onclick="undo()">Undo</button></div>
-<div class="scrim" id="scrim" onclick="closePalette();closeDismiss();"></div>
+<div class="scrim" id="scrim" onclick="closePalette();closeDismiss();closeWaiting();"></div>
 <div class="palette" id="palette">
   <input id="pq" placeholder="Jump to an item, switch view, or run a command…" autocomplete="off">
   <div class="res" id="pres"></div>
 </div>
-<div class="help">↑↓ move · <kbd>x</kbd> done · <kbd>d</kbd> defer · <kbd>a</kbd> assign · <kbd>e</kbd> open · <kbd>?</kbd> help</div>
+<div class="help">↑↓ move · <kbd>x</kbd> done · <kbd>w</kbd> waiting on · <kbd>d</kbd> defer · <kbd>a</kbd> assign · <kbd>e</kbd> open · <kbd>?</kbd> help</div>
 
 <script>
 /* ════════ state ════════ */
@@ -367,14 +437,19 @@ let SPLIT_OPEN=new Set(), MAIL_OPEN=new Set();
 /* Filters. `lane`/`overdue`/`assignedAway` exist so a stat tile can land on a
    view holding exactly the items it counted — see focusView(). */
 const FILT={openOnly:false, mine:false, dueSoon:false, overdue:false,
-            assignedAway:false, lane:null, src:new Set(), q:""};
+            assignedAway:false, waitingDue:false, lane:null, src:new Set(), q:""};
 const LANE_LABEL={urgent:"🔴 Urgent",action:"🟠 Action Today",week:"🟡 This Week",
   rafael:"Pending Rafael",guilherme:"Pending Gui",claude:"🤖 Claude",noise:"Noise / FYI"};
-const DEFERS={"no-time":"⏰ No time today","waiting":"👤 Waiting for someone",
+/* "waiting" is deliberately NOT here any more — it is its own space, entered
+   through openWaiting(), and the server refuses it as a defer reason. Leaving it
+   in both places would be two sources of truth for one state, which is exactly
+   how the Open tile came to disagree with the board it opened. */
+const DEFERS={"no-time":"⏰ No time today",
   "later-week":"📅 Later this week","needs-rafael":"⚪ Needs Rafael"};
 const ASG=["hadassa","rafael","guilherme","claude","alice"];
-const VIEWS=[["today","Today"],["board","Board"],["project","By project"],
-             ["people","By person"],["done","Done"],["dropped","Not needed"]];
+const VIEWS=[["today","Today"],["board","Board"],["waiting","👤 Waiting on"],
+             ["project","By project"],["people","By person"],
+             ["done","Done"],["dropped","Not needed"]];
 
 const esc=s=>String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;")
   .replace(/>/g,"&gt;").replace(/"/g,"&quot;");
@@ -403,6 +478,26 @@ function lane(it){
 const stat=id=>cs(id).status||(cs(id).done?"done":"open");
 const isDone=id=>stat(id)==="done";
 const isDrop=id=>stat(id)==="dismissed";
+/* ── the waiting space — mirrors pm_state.is_waiting / nudge_due exactly ──
+   Blocked on someone else AND still open. The open half matters: the moment she
+   ticks a waiting item done it must leave the waiting tab, not linger there
+   looking unresolved. */
+const wOf=id=>cs(id).waiting||null;
+const isWaiting=id=>!!wOf(id) && stat(id)==="open";
+const nudgeDue=id=>{const w=wOf(id); return !!(w&&w.nudge_on&&String(w.nudge_on)<=todayStr());};
+const needsWho=id=>{const w=wOf(id); return !!w && !String(w.who||"").trim();};
+const wLog=id=>((wOf(id)||{}).log)||[];
+/* Days since the last chase — NOT `age`, which keeps climbing on an item she
+   chased an hour ago and would make every waiting card look neglected. */
+function staleDays(id){
+  const w=wOf(id); if(!w) return 0;
+  const last=(wLog(id).slice(-1)[0]||{}).at || w.since;
+  if(!last) return 0;
+  const d=new Date(last);
+  if(isNaN(d)) return 0;
+  return Math.max(0,Math.round((new Date(todayStr()+"T00:00:00")-new Date(localDay(d)+"T00:00:00"))/864e5));
+}
+const dayPlus=n=>dayAhead(n);
 /* `status` and `done` must move together. The server is authoritative but only
    answers AFTER the re-render, and its reply carries no status; flipping `done`
    alone leaves stat() reading the stale `status`, so the card looks finished
@@ -448,6 +543,45 @@ function undismiss(id){
     headers:{"Content-Type":"application/json"},body:JSON.stringify({dismiss:false})})
     .then(r=>r.json()).then(()=>{ s.status="open"; s.dismiss_reason=null; setSave("saved"); });
 }
+/* ── waiting-space writes ──
+   Each one round-trips and takes the SERVER's block as the new truth rather than
+   optimistically building one locally: the log is append-only and server-stamped,
+   so a locally-invented entry could show a time the file does not contain. */
+function enterWaiting(id,payload){
+  setSave("saving");
+  return fetch("/api/item/"+encodeURIComponent(id)+"/waiting",{method:"POST",
+    headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)})
+    .then(r=>r.json()).then(j=>{
+      if(j.error){ setSave("error",j.error); throw new Error(j.error); }
+      cs(id).waiting=j.waiting; cs(id).defer=null; cs(id).deferDays=0;
+      setSave("saved"); return j; });
+}
+function waitingUpdate(id,text,nudge){
+  setSave("saving");
+  return fetch("/api/item/"+encodeURIComponent(id)+"/waiting/update",{method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({text:text,nudge_on:nudge||null})})
+    .then(r=>r.json()).then(j=>{
+      if(j.error){ setSave("error",j.error); throw new Error(j.error); }
+      /* Re-read the item so the rendered log is the stored log, to the second. */
+      return fetch("/api/state").then(r=>r.json()).then(d=>{
+        const fresh=(d.state||{})[id]; if(fresh) cs(id).waiting=fresh.waiting;
+        setSave("saved"); return j; }); });
+}
+function unblockWaiting(id,reason){
+  setSave("saving");
+  return fetch("/api/item/"+encodeURIComponent(id)+"/waiting",{method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({clear:true,reason:reason||null})})
+    .then(r=>r.json()).then(j=>{
+      if(j.error){ setSave("error",j.error); throw new Error(j.error); }
+      /* The unblock folds the chase log into her note — re-read it, or the card
+         goes back to the board having visibly lost the history. */
+      return fetch("/api/state").then(r=>r.json()).then(d=>{
+        const fresh=(d.state||{})[id];
+        if(fresh){ cs(id).waiting=null; cs(id).note=fresh.note; }
+        setSave("saved"); return j; }); });
+}
 function patch(id,fields){
   setSave("saving");
   return fetch("/api/item/"+encodeURIComponent(id)+"/patch",{method:"POST",
@@ -485,6 +619,16 @@ function visible(){
     if(VIEW==="dropped" && !isDrop(it.id)) return false;
     if(VIEW!=="done" && VIEW!=="dropped" && isDrop(it.id)) return false;
     if(VIEW!=="done" && FILT.openOnly && isDone(it.id)) return false;
+    /* Waiting items LEAVE the main board — her call: "it goes to a separate
+       space". They appear in the Waiting tab and nowhere else, so the Open count
+       and every lane view describe only work she can actually move today.
+       Done/Not-needed still show them, because the record of finished work must
+       not depend on how it got finished. */
+    if(VIEW==="waiting" && !isWaiting(it.id)) return false;
+    /* The "To chase now" tile lands here, so the tab renders exactly the count
+       that tile claimed — not the whole waiting list with the urgent ones on top. */
+    if(FILT.waitingDue && !(nudgeDue(it.id)||needsWho(it.id))) return false;
+    if(VIEW!=="waiting" && VIEW!=="done" && VIEW!=="dropped" && isWaiting(it.id)) return false;
     if(FILT.mine && s.assignee) return false;
     if(FILT.assignedAway && !(s.assignee && s.assignee!=="hadassa")) return false;
     if(FILT.overdue && !isOverdue(it)) return false;
@@ -511,9 +655,40 @@ function render(){
   renderViews(); renderSrcChips(); renderTiles(); renderFilterBar();
   const b=document.getElementById("board"); b.innerHTML="";
   const vis=visible();
-  if(!vis.length){ b.innerHTML='<div class="empty">Nothing matches. Clear the filters or search.</div>'; return; }
+  if(!vis.length){
+    b.innerHTML = VIEW==="waiting"
+      ? '<div class="empty">Nothing is waiting on anyone else right now.<br>'
+        + 'Use <b>👤 Waiting on…</b> on a card when you\'ve asked someone for '
+        + 'something and can\'t finish it until they answer.</div>'
+      : '<div class="empty">Nothing matches. Clear the filters or search.</div>';
+    return; }
 
+  if(VIEW==="waiting"){
+    /* Order: cards that cannot be chased at all (no name) → cards whose chase
+       date has arrived → then stalest first. Sorted by how much they need her,
+       not alphabetically. */
+    const ord=vis.slice().sort((a,b)=>
+      (needsWho(a.id)?0:1)-(needsWho(b.id)?0:1) ||
+      (nudgeDue(a.id)?0:1)-(nudgeDue(b.id)?0:1) ||
+      staleDays(b.id)-staleDays(a.id));
+    const chase=ord.filter(i=>nudgeDue(i.id)||needsWho(i.id));
+    const rest=ord.filter(i=>!nudgeDue(i.id)&&!needsWho(i.id));
+    if(chase.length) group(b,"Chase now — the date has come",chase);
+    if(rest.length)  group(b,"Waiting — nothing to do yet",rest);
+    wire(); return;
+  }
   if(VIEW==="today"){
+    /* Overdue chases are pulled back into today. Waiting items are off the main
+       board by design, so this strip is the ONLY thing that returns one to her
+       attention — without it the separate space is a drawer things die in. */
+    const due=ITEMS.filter(i=>isWaiting(i.id)&&(nudgeDue(i.id)||needsWho(i.id)));
+    if(due.length) b.insertAdjacentHTML("beforeend",
+      `<div class="nudgestrip">
+         <span class="nt">👤 ${due.length} ${due.length===1?"item needs":"items need"} a nudge</span>
+         <span class="nn">${esc(due.slice(0,3).map(i=>(wOf(i.id)||{}).who||"(no name)").join(" · "))}${due.length>3?" +"+(due.length-3):""}</span>
+         <span class="grow" style="flex:1"></span>
+         <button class="pbtn sm" onclick="setView('waiting')">Open Waiting on →</button>
+       </div>`);
     const focus=sortItems(vis.filter(i=>stat(i.id)==="open" && ["urgent","action"].includes(lane(i)))).slice(0,5);
     if(focus.length){
       b.insertAdjacentHTML("beforeend",sec("The five that matter",focus.length));
@@ -552,8 +727,10 @@ function card(it){
      never off `s.done` alone, or the card and the tiles can disagree. */
   const s=cs(it.id), l=lane(it), done=isDone(it.id);
   const drop=isDrop(it.id);
+  const wait=isWaiting(it.id), wnudge=wait&&(nudgeDue(it.id)||needsWho(it.id));
   const cls=["card",done?"done":"",drop?"dismissed":"",
-             (!done&&!drop&&l==="urgent")?"urgent":"",
+             (!done&&!drop&&!wait&&l==="urgent")?"urgent":"",
+             wait?"waiting":"",wnudge?"nudge":"",
              (!done&&!drop&&s.defer)?"deferred":"",SEL.has(it.id)?"sel":"",
              OPEN.has(it.id)?"open":""].filter(Boolean).join(" ");
   let tags=`<span class="t src">${esc(it.source||"")}</span>`;
@@ -562,6 +739,9 @@ function card(it){
   if((it.age||0)>=1) tags+=`<span class="t age">↩ day ${(it.age||0)+1}</span>`;
   if(s.assignee) tags+=`<span class="t asg">→ ${esc(s.assignee)}</span>`;
   if(s.defer) tags+=`<span class="t def">${esc(DEFERS[s.defer]||s.defer)}${(s.deferDays>1)?" · day "+s.deferDays:""}</span>`;
+  /* A waiting card is tagged in every view that can show it (Done and
+     Not-needed included), so a finished item still says how it got there. */
+  if(wOf(it.id)) tags+=`<span class="t def">👤 waiting on ${esc((wOf(it.id).who||"?").split(/[ (]/)[0]||"?")}</span>`;
   if(it.due){ const late=it.due<todayStr();
     tags+=`<span class="t due ${late?"":"soon"}">📅 ${esc(it.due)}${late?" overdue":""}</span>`; }
   if(it.unconfirmed) tags+=`<span class="t unconf">unconfirmed</span>`;
@@ -577,6 +757,7 @@ function card(it){
     </div>
     ${it.action?`<div class="act"><div class="lbl">Your action</div>
        <div class="txt" contenteditable="true" data-act="${it.id}">${esc(it.action)}</div></div>`:""}
+    ${waitBlock(it)}
     ${splitBlock(it)}
     ${mailBlock(it)}
     ${drop?`<div class="dismissbox"><div class="lbl">Not needed — your reason</div>${esc(s.dismiss_reason||"")}</div>`:""}
@@ -594,6 +775,8 @@ function card(it){
       <select class="mini" data-lane="${it.id}">
         ${Object.entries(LANE_LABEL).map(([k,v])=>`<option value="${k}" ${(it.lane===k)?"selected":""}>${v}</option>`).join("")}
       </select>
+      ${(!drop&&!done&&!wait)
+        ? `<button class="mini" data-wenter="${it.id}">👤 Waiting on…</button>` : ""}
       ${drop
         ? `<button class="mini" data-undrop="${it.id}">↩ Still needed</button>`
         : `<button class="mini" data-drop="${it.id}">🚫 Not needed</button>`}
@@ -608,6 +791,43 @@ function card(it){
         `<a class="lk" href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.label)} ↗</a>`).join("")}</div>`:""}
       ${(it.where||[]).length?`<p style="margin-top:8px;font-size:12px;color:var(--muted)">📍 ${(it.where||[]).map(esc).join(" · ")}</p>`:""}
     </div>
+  </div>`;
+}
+/* The waiting box — who, since when, when to chase, and the append-only log.
+   NOT folded away like the split and the email: the whole reason this space
+   exists is that she asked to keep updating these, and hiding the update field
+   behind an expand would put a click in front of the one action the tab is for.
+   Rendered on Done/Not-needed cards too (read-only there) so a finished item
+   keeps the history of how it was unblocked. */
+function waitBlock(it){
+  const w=wOf(it.id); if(!w) return "";
+  const live=isWaiting(it.id);
+  const late=live&&nudgeDue(it.id), nowho=needsWho(it.id);
+  const log=wLog(it.id), stale=staleDays(it.id);
+  const since=(w.since||"").slice(0,10);
+  const logHtml = log.length
+    ? `<ul class="wlog">${log.map(e=>`<li><span class="lt">${esc((e.at||"").slice(5,16).replace("T"," "))}</span>${esc(e.text)}</li>`).join("")}</ul>`
+    : `<div class="wlog none">No updates logged yet — the first chase goes here.</div>`;
+  return `<div class="wbox ${late||nowho?"nudge":""}">
+    <div class="whead">
+      <span class="who">👤 ${nowho?"— who? —":esc(w.who)}</span>
+      <span class="wmeta">since <b>${esc(since)}</b>${log.length?` · <b>${log.length}</b> update${log.length===1?"":"s"}`:""}${stale>0?` · last touched <b>${stale}</b>d ago`:" · touched today"}</span>
+      ${w.nudge_on?`<span class="wnudge ${late?"late":""}">${late?"chase now — due ":"chase "}${esc(String(w.nudge_on))}</span>`:`<span class="wnudge">no chase date</span>`}
+    </div>
+    ${w.what?`<div class="wwhat">Owes us: ${esc(w.what)}</div>`:""}
+    ${nowho?`<div class="whowarn">This came from the old “waiting for someone” tag, which never recorded a name. Type who you are waiting on so it can be chased.</div>
+      <div class="wadd"><input type="text" data-wwho="${it.id}" placeholder="Who are you waiting on?">
+        <button class="mini" data-wwhosave="${it.id}">Save name</button></div>`:""}
+    ${logHtml}
+    ${live?`<div class="wadd">
+      <input type="text" data-wupd="${it.id}" placeholder="+ Add an update — what happened, what they said">
+      <span class="lbl2">chase again</span>
+      <input type="date" data-wnudge="${it.id}" value="${esc(w.nudge_on||"")}">
+      <button class="pbtn sm" data-wsave="${it.id}">Log it</button>
+      <span class="ok-flash" id="wok-${it.id}">✓ logged</span>
+      <span style="flex:1"></span>
+      <button class="mini" data-wclear="${it.id}">↩ Unblocked — back to board</button>
+    </div>`:""}
   </div>`;
 }
 /* The split. Renders nothing at all when a card has neither side, so cards that
@@ -694,9 +914,17 @@ function renderSrcChips(){
     `<button class="chip ${FILT.src.has(s)?"on":""}" onclick="toggleSrc('${s}')">${esc(s)}</button>`).join("");
 }
 function renderTiles(){
-  const open=ITEMS.filter(i=>!isDone(i.id)&&!isDrop(i.id));
+  /* `open` = work on the main board. Waiting items are excluded because they are
+     excluded from the board itself — a tile that counts them here would claim 14
+     and open 11, which is precisely the defect this board already had once. */
+  const waitAll=ITEMS.filter(i=>isWaiting(i.id));
+  const waitDue=waitAll.filter(i=>nudgeDue(i.id)||needsWho(i.id)).length;
+  const open=ITEMS.filter(i=>!isDone(i.id)&&!isDrop(i.id)&&!isWaiting(i.id));
   const urgent=open.filter(i=>lane(i)==="urgent").length;
-  const waiting=open.filter(i=>cs(i.id).assignee&&cs(i.id).assignee!=="hadassa").length;
+  /* Assigned away ≠ waiting on someone. Assigning to Rafael keeps the card on
+     her board in his lane; the waiting space is for work she cannot progress at
+     all. Two different questions, so two different tiles. */
+  const assigned=open.filter(i=>cs(i.id).assignee&&cs(i.id).assignee!=="hadassa").length;
   const overdue=open.filter(i=>isOverdue(i)).length;
   const doneN=ITEMS.filter(i=>isDone(i.id)).length;
   /* "Done today" must mean today. On a board that hasn't been rolled, the done
@@ -705,13 +933,18 @@ function renderTiles(){
     && (cs(i.id).done_at||"").slice(0,10)===todayStr()).length;
   const doneEarlier=doneN-doneToday;
   const dropN=ITEMS.filter(i=>isDrop(i.id)).length;
-  const denom=ITEMS.length-dropN;   /* dismissing work must not inflate progress */
+  /* Dismissing work must not inflate progress; neither must being blocked on
+     someone else count against it. Both leave the denominator — mirrors
+     pm_state.counts(). */
+  const denom=ITEMS.length-dropN-waitAll.length;
   const pct=denom?Math.round(doneN/denom*100):0;
   /* Every tile lands on a view filtered to exactly what it counted. */
   document.getElementById("tiles").innerHTML=`
     ${tile("Open",open.length,"","focusView({view:'board',openOnly:true})")}
     ${tile("Urgent",urgent,urgent?"bad":"","focusView({view:'board',openOnly:true,lane:'urgent'})")}
-    ${tile("Waiting on others",waiting,"warn","focusView({view:'people',openOnly:true,assignedAway:true})")}
+    ${tile("Waiting on",waitAll.length,"warn","focusView({view:'waiting'})")}
+    ${waitDue?tile("To chase now",waitDue,"bad","focusView({view:'waiting',waitingDue:true})"):""}
+    ${assigned?tile("Assigned away",assigned,"","focusView({view:'people',openOnly:true,assignedAway:true})"):""}
     ${tile("Overdue",overdue,overdue?"bad":"","focusView({view:'board',openOnly:true,overdue:true})")}
     ${tile("Done today",doneToday,"ok","focusView({view:'done'})")}
     ${doneEarlier?tile("Done earlier",doneEarlier,"","focusView({view:'done'})"):""}
@@ -740,6 +973,54 @@ function wire(){
   document.querySelectorAll("[data-fmail]").forEach(el=>el.onclick=()=>{
     const id=el.getAttribute("data-fmail");
     MAIL_OPEN.has(id)?MAIL_OPEN.delete(id):MAIL_OPEN.add(id); render();
+  });
+  /* ── waiting space ── */
+  document.querySelectorAll("[data-wenter]").forEach(el=>el.onclick=()=>
+    openWaiting(el.getAttribute("data-wenter")));
+  const logUpdate=id=>{
+    const ti=document.querySelector(`[data-wupd="${id}"]`);
+    const di=document.querySelector(`[data-wnudge="${id}"]`);
+    const text=(ti&&ti.value||"").trim();
+    if(!text){ if(ti) ti.focus(); return; }
+    waitingUpdate(id,text,di?di.value:null).then(()=>{
+      /* Flash before the re-render so the confirmation isn't wiped by it. */
+      const f=document.getElementById("wok-"+id);
+      if(f){f.style.display="inline";setTimeout(()=>f.style.display="none",1500);}
+      render(); toast("Update logged"); }).catch(()=>{});
+  };
+  document.querySelectorAll("[data-wsave]").forEach(el=>el.onclick=()=>
+    logUpdate(el.getAttribute("data-wsave")));
+  /* Enter submits — an update is one line typed in a hurry between calls. */
+  document.querySelectorAll("[data-wupd]").forEach(el=>el.onkeydown=e=>{
+    if(e.key==="Enter"){ e.preventDefault(); logUpdate(el.getAttribute("data-wupd")); }});
+  /* Changing only the date, with no text, still re-arms the chase — pushing the
+     date is itself a decision and must persist without inventing a log line. */
+  document.querySelectorAll("[data-wnudge]").forEach(el=>el.onchange=()=>{
+    const id=el.getAttribute("data-wnudge");
+    const ti=document.querySelector(`[data-wupd="${id}"]`);
+    if(ti&&ti.value.trim()) return;             /* Log it will carry the date */
+    waitingUpdate(id,"Chase date moved to "+(el.value||"none"),el.value||null)
+      .then(()=>render()).catch(()=>{});
+  });
+  document.querySelectorAll("[data-wwhosave]").forEach(el=>el.onclick=()=>{
+    const id=el.getAttribute("data-wwhosave");
+    const inp=document.querySelector(`[data-wwho="${id}"]`);
+    const who=(inp&&inp.value||"").trim();
+    if(!who){ if(inp) inp.focus(); return; }
+    fetch("/api/item/"+encodeURIComponent(id)+"/waiting",{method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({who_only:true,who:who})})
+      .then(r=>r.json()).then(j=>{
+        if(j.error){ setSave("error",j.error); return; }
+        const w=cs(id).waiting||{}; w.who=who; w._needs_who=false; cs(id).waiting=w;
+        setSave("saved"); render(); toast("Recorded — waiting on "+who); });
+  });
+  document.querySelectorAll("[data-wclear]").forEach(el=>el.onclick=()=>{
+    const id=el.getAttribute("data-wclear");
+    const why=prompt("Back on the board — what unblocked it?\n\n(The chase log is "
+      +"kept in your note.)","");
+    if(why===null) return;                      /* Cancel must not unblock */
+    unblockWaiting(id,why).then(()=>{ render(); toast("Back on the board"); }).catch(()=>{});
   });
   document.querySelectorAll("[data-drop]").forEach(el=>el.onclick=()=>openDismiss(el.getAttribute("data-drop")));
   document.querySelectorAll("[data-undrop]").forEach(el=>el.onclick=()=>{
@@ -821,6 +1102,7 @@ function focusView(o){
   FILT.dueSoon      = !!o.dueSoon;
   FILT.mine         = !!o.mine;
   FILT.assignedAway = !!o.assignedAway;
+  FILT.waitingDue   = !!o.waitingDue;
   FILT.lane         = o.lane || null;
   if(o.view) VIEW=o.view;
   CURSOR=-1; syncChips(); render(); window.scrollTo({top:0,behavior:"smooth"});
@@ -832,7 +1114,7 @@ function syncChips(){
 }
 function clearFilters(){
   FILT.openOnly=FILT.mine=FILT.dueSoon=FILT.overdue=FILT.assignedAway=false;
-  FILT.lane=null; FILT.src.clear(); syncChips(); render();
+  FILT.waitingDue=false; FILT.lane=null; FILT.src.clear(); syncChips(); render();
 }
 /* Because tiles now set filters, she must be able to SEE what is being hidden
    and undo it in one click — a silent filter is how a board lies about itself. */
@@ -842,7 +1124,8 @@ function renderFilterBar(){
   if(FILT.lane)         on.push([LANE_LABEL[FILT.lane]||FILT.lane,"lane"]);
   if(FILT.overdue)      on.push(["Overdue","overdue"]);
   if(FILT.dueSoon)      on.push(["Due within 7 days","dueSoon"]);
-  if(FILT.assignedAway) on.push(["Waiting on others","assignedAway"]);
+  if(FILT.assignedAway) on.push(["Assigned away","assignedAway"]);
+  if(FILT.waitingDue)   on.push(["Needs a nudge","waitingDue"]);
   if(FILT.mine)         on.push(["Mine only","mine"]);
   [...FILT.src].forEach(s=>on.push(["source: "+s,"src:"+s]));
   const el=document.getElementById("filterbar");
@@ -925,7 +1208,10 @@ function openDismiss(id){
 function closeDismiss(){
   DROP_ID=null;
   document.getElementById("dmodal").classList.remove("show");
-  if(!document.getElementById("palette").classList.contains("show"))
+  /* The scrim is shared by three overlays now — it may only come down when none
+     of them is showing, or closing one leaves another floating unbacked. */
+  if(!document.getElementById("palette").classList.contains("show")
+     && !document.getElementById("wmodal").classList.contains("show"))
     document.getElementById("scrim").classList.remove("show");
 }
 function confirmDismiss(){
@@ -935,6 +1221,50 @@ function confirmDismiss(){
   const id=DROP_ID;
   dismiss(id,why).then(()=>{ closeDismiss(); render();
     toast("Marked not needed — reason recorded for the daily report"); }).catch(()=>{});
+}
+
+/* ════════ waiting on someone — entering the space ════════ */
+let WAIT_ID=null;
+const WHO_QUICK=["Rafael","Guilherme","Alice","the client","the sub","Andersen","FD"];
+function openWaiting(id){
+  WAIT_ID=id; const it=byId(id);
+  document.getElementById("wmodal-subj").textContent=it?it.subject:"";
+  document.getElementById("wmodal-who").value="";
+  document.getElementById("wmodal-what").value="";
+  document.getElementById("wmodal-first").value="";
+  document.getElementById("wmodal-err").style.display="none";
+  /* Pre-filled, not blank: a waiting item with no chase date is invisible, and
+     "+3 days" is a decision she can change in one click. */
+  document.getElementById("wmodal-nudge").value=dayPlus(3);
+  document.getElementById("wmodal-nudgehint").textContent="(3 days from today — change it if you like)";
+  document.getElementById("wmodal-quick").innerHTML=WHO_QUICK.map(r=>
+    `<button class="chip" data-wq="${esc(r)}">${esc(r)}</button>`).join("");
+  document.querySelectorAll("[data-wq]").forEach(bn=>bn.onclick=()=>{
+    const w=document.getElementById("wmodal-who");
+    w.value=bn.getAttribute("data-wq"); w.focus(); });
+  document.getElementById("scrim").classList.add("show");
+  document.getElementById("wmodal").classList.add("show");
+  setTimeout(()=>document.getElementById("wmodal-who").focus(),40);
+}
+function closeWaiting(){
+  WAIT_ID=null;
+  document.getElementById("wmodal").classList.remove("show");
+  if(!document.getElementById("palette").classList.contains("show")
+     && !document.getElementById("dmodal").classList.contains("show"))
+    document.getElementById("scrim").classList.remove("show");
+}
+function confirmWaiting(){
+  const who=document.getElementById("wmodal-who").value.trim();
+  if(!who){ document.getElementById("wmodal-err").style.display="block";
+            document.getElementById("wmodal-who").focus(); return; }
+  const id=WAIT_ID;
+  enterWaiting(id,{who:who,
+                   what:document.getElementById("wmodal-what").value.trim(),
+                   nudge_on:document.getElementById("wmodal-nudge").value||null,
+                   first_update:document.getElementById("wmodal-first").value.trim()})
+    .then(()=>{ closeWaiting(); render();
+      toast("Moved to Waiting on "+who+" — off the board until you chase it"); })
+    .catch(()=>{});
 }
 
 /* ════════ command palette ════════ */
@@ -948,6 +1278,8 @@ function paletteResults(q){
   VIEWS.forEach(([k,l])=>{ if(("view "+l).toLowerCase().includes(q))
     out.push({label:"Go to "+l,kind:"view",fn:()=>{setView(k);closePalette();}}); });
   out.push({label:"Toggle open-only",kind:"filter",fn:()=>{toggleFilter("openOnly");closePalette();}});
+  out.push({label:"Show what needs a nudge",kind:"waiting",
+            fn:()=>{setView("waiting");closePalette();}});
   out.push({label:"Expand every card",kind:"action",fn:()=>{expandAll(true);closePalette();}});
   out.push({label:"Collapse every card",kind:"action",fn:()=>{expandAll(false);closePalette();}});
   ITEMS.filter(i=>i.subject.toLowerCase().includes(q)).slice(0,8).forEach(i=>
@@ -965,7 +1297,7 @@ function paletteResults(q){
 const typing=e=>/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)||e.target.isContentEditable;
 document.addEventListener("keydown",e=>{
   if((e.metaKey||e.ctrlKey)&&e.key==="k"){ e.preventDefault(); openPalette(); return; }
-  if(e.key==="Escape"){ closePalette(); return; }
+  if(e.key==="Escape"){ closePalette(); closeDismiss(); closeWaiting(); return; }
   if(document.getElementById("palette").classList.contains("show")){
     if(e.key==="Enter"&&window._pal&&window._pal.length){ e.preventDefault(); window._pal[0].fn(); }
     return;
@@ -973,9 +1305,13 @@ document.addEventListener("keydown",e=>{
   if(typing(e)) return;
   const vis=sortItems(visible());
   if(e.key==="/"){ e.preventDefault(); document.getElementById("q").focus(); return; }
-  if(e.key==="?"){ alert("↑/↓ or j/k  move\nx  done\nd  defer (no time)\na  assign to Rafael\ne  expand\nEnter  open details\n/  search\n⌘K  command palette\nu  undo\nn  not needed (asks why)"); return; }
+  if(e.key==="?"){ alert("↑/↓ or j/k  move\nx  done\nd  defer (no time)\nw  waiting on someone (asks who)\na  assign to Rafael\ne  expand\nEnter  open details\n/  search\n⌘K  command palette\nu  undo\nn  not needed (asks why)"); return; }
   if(e.key==="u"){ undo(); return; }
   if(e.key==="n"){ const v=sortItems(visible()); if(v[CURSOR]) openDismiss(v[CURSOR].id); return; }
+  /* `w` opens the modal rather than acting directly — there is no valid one-key
+     version of this transition, because it needs a name. */
+  if(e.key==="w"){ const v=sortItems(visible());
+    if(v[CURSOR]&&!isWaiting(v[CURSOR].id)) openWaiting(v[CURSOR].id); return; }
   if(["j","ArrowDown"].includes(e.key)){ e.preventDefault(); CURSOR=Math.min(CURSOR+1,vis.length-1); focusCursor(vis); }
   if(["k","ArrowUp"].includes(e.key)){ e.preventDefault(); CURSOR=Math.max(CURSOR-1,0); focusCursor(vis); }
   const cur=vis[CURSOR]; if(!cur) return;
