@@ -286,3 +286,38 @@ def test_patch_without_subject_is_allowed_when_the_card_exists(path):
 def test_patch_on_a_NEW_card_still_requires_a_subject(path):
     with pytest.raises(ValueError):
         I.ingest([{"id": "brandnew", "claude_done": ["x"]}], path=path)
+
+
+# ── clearing a field vs omitting it (2026-07-29) ──
+
+def test_OMITTING_a_field_preserves_it_and_that_is_the_trap(path):
+    """Bit twice on 2026-07-29. A card's draft went stale, the refresh rewrote
+    subject/action but OMITTED draft, and yesterday's email survived underneath.
+    Then a Brookvale collection email that had become dangerous to send was
+    "removed" by omission — and stayed on the card. Omitting is not clearing."""
+    I.ingest([{"id": "keep", "draft": {"to": "a@b.com", "subject": "s",
+                                      "body": "original"}}], path=path)
+    I.ingest([{"id": "keep", "subject": "rewritten, no draft supplied"}],
+             path=path)
+    it = S.get_item(S.load_state(path)[0], "keep")
+    assert it["subject"] == "rewritten, no draft supplied"
+    assert it["draft"]["body"] == "original"     # <-- survived. The trap.
+
+
+def test_EXPLICIT_null_clears_a_dangerous_draft(path):
+    """The only way to de-fang a card whose draft must not be sent."""
+    I.ingest([{"id": "keep", "draft": {"to": "a@b.com", "subject": "s",
+                                      "body": "do not send this"}}], path=path)
+    I.ingest([{"id": "keep", "draft": None,
+               "_no_draft": "cleared: chasing this client would be wrong"}],
+             path=path)
+    assert S.get_item(S.load_state(path)[0], "keep")["draft"] is None
+
+
+def test_clearing_a_draft_on_a_chase_card_needs_the_written_reason(path):
+    """Clearing must be deliberate: draft:None on a chase card without
+    _no_draft is rejected, so a draft can never quietly vanish."""
+    with pytest.raises(ValueError):
+        I.ingest([{"id": "c", "subject": "Chase the client for the balance",
+                   "lane": "action", "claude_done": [], "draft": None}],
+                 path=path)
