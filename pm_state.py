@@ -137,6 +137,32 @@ ITEM_FIELDS = (
     "hadassa_todo",
     # ── waiting-on space (2026-07-29) — see the WAITING block above ──
     "waiting",
+    # ── delegation to Claude (2026-07-29) ──
+    # Hadassa: "what about the 'assigned away' that goes to claude? shouldn't
+    # them be as done as well and flagged once done that was Claude by my order?
+    # They shouldn't be kept together with the other assigned away ones that are
+    # for other people. and once I click 'claude' to run that task by itself, how
+    # will I know it'll be done in time? when will you know that you're supposed
+    # to do it?"
+    #
+    # Three separate problems in that, and each needs a field:
+    #   claude_queued_at — WHEN she delegated it. Without this there is no way to
+    #                      say "queued 3 hours ago" or to notice something has sat
+    #                      in the queue for two days. Her real question is about
+    #                      time, and time needs a timestamp.
+    #   done_by          — WHO finished it. A card completed by Claude must not
+    #                      read as work she did; the daily report is a record of
+    #                      HER actions, so an unmarked Claude completion would
+    #                      quietly inflate it.
+    #   claude_result    — what Claude actually did, in one line, so "done" is
+    #                      auditable rather than asserted.
+    #
+    # The honest limit, which the UI states rather than hides: Claude does not
+    # watch this board. It is seen when a session runs. So the queue is swept at
+    # the start of every session, and the card shows how long it has waited.
+    "claude_queued_at",
+    "done_by",
+    "claude_result",
 )
 
 # status values. `dismissed` = "this task isn't needed" — it is NOT the same as
@@ -282,6 +308,10 @@ def new_item(id, subject, **kw):
         "hadassa_todo": [],
         # None = not waiting on anyone. See the WAITING block near the top.
         "waiting": None,
+        # Delegation to Claude — see ITEM_FIELDS.
+        "claude_queued_at": None,
+        "done_by": None,
+        "claude_result": None,
     }
     for k, v in kw.items():
         if k in ITEM_FIELDS:
@@ -633,6 +663,65 @@ def set_followup(item_id, text, when, path=STATE_PATH, now=None):
     return _mutate(_fn, path, now)[1]
 
 
+# ── work she delegated to Claude ──
+
+def claude_queue(state):
+    """Open items she has delegated to Claude, oldest-queued first.
+
+    This is the list swept at the start of every session. It is a QUEUE, not a
+    lane filter: an item counts because she assigned it, regardless of which lane
+    it happens to sit in.
+    """
+    q = [it for it in state["items"]
+         if it.get("assignee") == "claude" and it.get("status") == "open"]
+    q.sort(key=lambda it: it.get("claude_queued_at") or "")
+    return q
+
+
+def hours_queued(it, now=None):
+    """How long a delegated item has been waiting on Claude. None if unstamped.
+
+    Cards delegated before `claude_queued_at` existed have no stamp — reported as
+    None rather than backfilled to now, which would make an old item look fresh.
+    """
+    dt = parse_dt(it.get("claude_queued_at"))
+    if dt is None:
+        return None
+    ref = now or datetime.datetime.now().astimezone()
+    return max(0.0, (ref - dt).total_seconds() / 3600.0)
+
+
+def complete_by_claude(item_id, result, path=STATE_PATH, now=None):
+    """Mark a delegated item done BY CLAUDE, with what was actually done.
+
+    `result` is required. "Done" with no statement of what was done is exactly the
+    kind of claim this system exists to prevent — and because these completions
+    feed a report about HER day, they have to be separable from her own work.
+
+    Refuses if the item was never delegated to Claude: Claude closing something
+    she never handed over would be Claude deciding her priorities.
+    """
+    result = (result or "").strip()
+    if not result:
+        return {"error": "say what was actually done — a bare 'done' is not a result"}
+
+    def _fn(state):
+        it = get_item(state, item_id)
+        if it is None:
+            return None
+        if it.get("assignee") != "claude":
+            return {"error": "this item was not delegated to Claude; only she can "
+                             "close her own work"}
+        it["status"] = "done"
+        it["done_at"] = _now_iso(now)
+        it["done_by"] = "claude"
+        it["claude_result"] = result
+        it["dismiss_reason"], it["dismissed_at"] = None, None
+        return {"ok": True, "id": item_id, "done_by": "claude",
+                "queued_hours": hours_queued(it, now)}
+    return _mutate(_fn, path, now)[1]
+
+
 # ── the waiting space ──
 
 def default_nudge(now=None, days=DEFAULT_NUDGE_DAYS):
@@ -848,12 +937,26 @@ def apply_click(item_id, payload, path=STATE_PATH, now=None):
             if want != (it.get("status") == "done"):
                 it["status"] = "done" if want else "open"
                 it["done_at"] = _now_iso(now) if want else None
+                # A tick in the UI is HER completion. complete_by_claude() is the
+                # only path that sets done_by="claude", so nothing Claude did can
+                # ever be silently credited to her, and nothing she did can be
+                # credited to Claude.
+                it["done_by"] = "hadassa" if want else None
                 if want:   # completing something clears a prior dismissal
                     it["dismiss_reason"] = None
                     it["dismissed_at"] = None
         if "assignee" in payload:
             who = payload["assignee"]
+            prev = it.get("assignee")
             it["assignee"] = None if who in (None, "", "hadassa") else who
+            # Stamp WHEN she delegated to Claude. Her question was about time
+            # ("how will I know it'll be done in time?"), and time cannot be
+            # answered without recording the moment the clock started. Only on
+            # the transition, so a re-render cannot reset the clock.
+            if it["assignee"] == "claude" and prev != "claude":
+                it["claude_queued_at"] = _now_iso(now)
+            elif it["assignee"] != "claude" and prev == "claude":
+                it["claude_queued_at"] = None
         if "defer" in payload:
             new = payload["defer"] or None
             # "waiting" is no longer a defer reason — it is its own space, and

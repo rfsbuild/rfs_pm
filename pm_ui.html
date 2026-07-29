@@ -147,6 +147,29 @@ a{color:var(--brand-deep);}
   border-radius:8px;padding:6px 8px;font-size:12.5px;color:var(--muted);}
 .wadd .lbl2{font-size:11px;color:var(--muted);font-weight:600;}
 .whowarn{margin-top:8px;font-size:12.5px;color:var(--bad);font-weight:600;}
+/* ── work she delegated to Claude (2026-07-29) ──
+   Visually separate from "assigned away", because they are different promises:
+   Rafael may or may not act, whereas a Claude item WILL be picked up at the next
+   session — and the card says when it was queued so that promise is checkable. */
+.card.forclaude{border-left:3px solid #6c7cf5;}
+.cq{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;
+  padding:1px 8px;border-radius:20px;background:#eceffe;color:#3c46a8;white-space:nowrap;}
+.cq.aged{background:var(--warn-bg);color:var(--warn);}
+.cq.old{background:var(--bad);color:#fff;}
+.doneby{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;
+  padding:1px 8px;border-radius:20px;background:var(--ok-bg);color:var(--ok);white-space:nowrap;}
+.resultbox{margin:0 14px 12px;background:#f4f6ff;border:1px solid var(--rule);
+  border-left:3px solid #6c7cf5;border-radius:8px;padding:9px 12px;font-size:13.5px;
+  color:var(--body);}
+.resultbox .lbl{font-size:9.5px;text-transform:uppercase;letter-spacing:.08em;
+  color:#3c46a8;font-weight:800;margin-bottom:3px;}
+/* The source row was indistinguishable from the active-filter row — she clicked a
+   source chip and could not tell what had been applied. Labelled and quieter. */
+.chiprow{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+.chiprow .rowlbl{font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;
+  color:var(--faint);font-weight:800;margin-right:2px;}
+.showing{font-size:12px;color:var(--muted);font-weight:600;margin-left:auto;
+  white-space:nowrap;}
 /* The strip that drags overdue chases back into her day. Waiting items leave the
    main board, so without this they would rot unseen. */
 .nudgestrip{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
@@ -352,8 +375,8 @@ kbd{background:var(--rule-soft);border:1px solid var(--rule);border-bottom-width
     <button class="chip ghost" onclick="expandAll(true)">Expand</button>
     <button class="chip ghost" onclick="expandAll(false)">Collapse</button>
   </div>
-  <div class="tools" id="srcchips" style="padding-top:0"></div>
-  <div class="tools" id="filterbar" style="padding-top:0;display:none"></div>
+  <div class="tools chiprow" id="srcchips" style="padding-top:0"></div>
+  <div class="tools chiprow" id="filterbar" style="padding-top:0;display:none"></div>
   <div class="tiles" id="tiles"></div>
   <div class="addbar">
     <input id="addq" placeholder="+  Add a task —  type it and press Enter">
@@ -448,7 +471,7 @@ const DEFERS={"no-time":"⏰ No time today",
   "later-week":"📅 Later this week","needs-rafael":"⚪ Needs Rafael"};
 const ASG=["hadassa","rafael","guilherme","claude","alice"];
 const VIEWS=[["today","Today"],["board","Board"],["waiting","👤 Waiting on"],
-             ["project","By project"],["people","By person"],
+             ["claude","🤖 With Claude"],["project","By project"],["people","By person"],
              ["done","Done"],["dropped","Not needed"]];
 
 const esc=s=>String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;")
@@ -498,6 +521,23 @@ function staleDays(id){
   return Math.max(0,Math.round((new Date(todayStr()+"T00:00:00")-new Date(localDay(d)+"T00:00:00"))/864e5));
 }
 const dayPlus=n=>dayAhead(n);
+/* ── work delegated to Claude ──
+   Deliberately keyed on the ASSIGNEE, not the lane: she delegates by picking
+   "claude" in the dropdown, and the item keeps whatever lane/priority it had. */
+const forClaude=id=>cs(id).assignee==="claude";
+const inClaudeQueue=id=>forClaude(id)&&stat(id)==="open";
+const queuedHours=id=>{const h=cs(id).queued_hours; return (h===null||h===undefined)?null:h;};
+const doneBy=id=>cs(id).done_by||null;
+/* "queued 3h ago" reads as a promise being kept; "queued 2 days ago" reads as one
+   being broken. Same field, and she should be able to see which without asking. */
+function queuedLabel(id){
+  const h=queuedHours(id);
+  if(h===null) return {txt:"queued — time not recorded", cls:""};
+  if(h<1)  return {txt:"queued "+Math.max(1,Math.round(h*60))+"m ago", cls:""};
+  if(h<24) return {txt:"queued "+Math.round(h)+"h ago", cls:h>=8?"aged":""};
+  const d=Math.floor(h/24);
+  return {txt:"queued "+d+(d===1?" day":" days")+" ago", cls:d>=2?"old":"aged"};
+}
 /* `status` and `done` must move together. The server is authoritative but only
    answers AFTER the re-render, and its reply carries no status; flipping `done`
    alone leaves stat() reading the stale `status`, so the card looks finished
@@ -624,6 +664,10 @@ function visible(){
        and every lane view describe only work she can actually move today.
        Done/Not-needed still show them, because the record of finished work must
        not depend on how it got finished. */
+    /* The Claude tab shows BOTH the queue and what Claude has already finished —
+       "shouldn't them be as done as well and flagged once done that was Claude by
+       my order". Seeing the finished ones is what makes the queue trustworthy. */
+    if(VIEW==="claude" && !(forClaude(it.id)||doneBy(it.id)==="claude")) return false;
     if(VIEW==="waiting" && !isWaiting(it.id)) return false;
     /* The "To chase now" tile lands here, so the tab renders exactly the count
        that tile claimed — not the whole waiting list with the urgent ones on top. */
@@ -656,6 +700,12 @@ function render(){
   const b=document.getElementById("board"); b.innerHTML="";
   const vis=visible();
   if(!vis.length){
+    if(VIEW==="claude"){
+      b.innerHTML='<div class="empty">Nothing is queued for Claude.<br>'
+        +'Pick <b>claude</b> in a card\'s assignee dropdown to hand it over — it gets '
+        +'picked up at the start of the next session, and comes back marked '
+        +'<b>done by Claude</b> with what was actually done.</div>';
+      return; }
     b.innerHTML = VIEW==="waiting"
       ? '<div class="empty">Nothing is waiting on anyone else right now.<br>'
         + 'Use <b>👤 Waiting on…</b> on a card when you\'ve asked someone for '
@@ -663,6 +713,24 @@ function render(){
       : '<div class="empty">Nothing matches. Clear the filters or search.</div>';
     return; }
 
+  if(VIEW==="claude"){
+    const q=vis.filter(i=>inClaudeQueue(i.id))
+      .sort((x,y)=>(queuedHours(y.id)||0)-(queuedHours(x.id)||0));
+    const fin=vis.filter(i=>doneBy(i.id)==="claude");
+    /* States the mechanism instead of implying magic. Her question — "when will
+       you know that you're supposed to do it?" — deserves an answer on the page,
+       not only in a chat message she will not have in front of her tomorrow. */
+    b.insertAdjacentHTML("beforeend",
+      `<div class="nudgestrip" style="background:#eceffe;border-color:#c9d0fb;border-left-color:#6c7cf5">
+         <span class="nt" style="color:#3c46a8">🤖 ${q.length} queued for Claude${fin.length?" · "+fin.length+" done":""}</span>
+         <span class="nn" style="color:#4a55b8">Claude does not watch this board — the queue is swept
+         at the start of every session, and each card shows how long it has waited.
+         Anything queued over a day shows red.</span>
+       </div>`);
+    if(q.length)   group(b,"Queued — waiting on Claude",q);
+    if(fin.length) group(b,"Done by Claude, at your order",fin);
+    wire(); return;
+  }
   if(VIEW==="waiting"){
     /* Order: cards that cannot be chased at all (no name) → cards whose chase
        date has arrived → then stalest first. Sorted by how much they need her,
@@ -735,16 +803,24 @@ function card(it){
   const s=cs(it.id), l=lane(it), done=isDone(it.id);
   const drop=isDrop(it.id);
   const wait=isWaiting(it.id), wnudge=wait&&(nudgeDue(it.id)||needsWho(it.id));
+  const cq=inClaudeQueue(it.id);
   const cls=["card",done?"done":"",drop?"dismissed":"",
              (!done&&!drop&&!wait&&l==="urgent")?"urgent":"",
-             wait?"waiting":"",wnudge?"nudge":"",
+             wait?"waiting":"",wnudge?"nudge":"",cq?"forclaude":"",
              (!done&&!drop&&s.defer)?"deferred":"",SEL.has(it.id)?"sel":"",
              OPEN.has(it.id)?"open":""].filter(Boolean).join(" ");
   let tags=`<span class="t src">${esc(it.source||"")}</span>`;
   if(it.project) tags+=`<span class="t prj" onclick="setView('project')">${esc(it.project)}</span>`;
   if(it.isNew) tags+=`<span class="t new">NEW</span>`;
   if((it.age||0)>=1) tags+=`<span class="t age">↩ day ${(it.age||0)+1}</span>`;
-  if(s.assignee) tags+=`<span class="t asg">→ ${esc(s.assignee)}</span>`;
+  if(s.assignee && s.assignee!=="claude") tags+=`<span class="t asg">→ ${esc(s.assignee)}</span>`;
+  /* A queued Claude item shows WHEN it was queued, not just that it was. */
+  if(cq){ const q=queuedLabel(it.id);
+    tags+=`<span class="cq ${q.cls}">🤖 ${esc(q.txt)}</span>`; }
+  /* Done BY Claude must never render the same as done by her — the board is a
+     record of HER day and the daily report is built off it. */
+  if(doneBy(it.id)==="claude")
+    tags+=`<span class="doneby">🤖 done by Claude, at your order</span>`;
   if(s.defer) tags+=`<span class="t def">${esc(DEFERS[s.defer]||s.defer)}${(s.deferDays>1)?" · day "+s.deferDays:""}</span>`;
   /* A waiting card is tagged in every view that can show it (Done and
      Not-needed included), so a finished item still says how it got there. */
@@ -771,6 +847,7 @@ function card(it){
     ${splitBlock(it)}
     ${mailBlock(it)}
     ${drop?`<div class="dismissbox"><div class="lbl">Not needed — your reason</div>${esc(s.dismiss_reason||"")}</div>`:""}
+    ${s.claude_result?`<div class="resultbox"><div class="lbl">🤖 What Claude did</div>${esc(s.claude_result)}</div>`:""}
     ${s.note?`<div class="notebox"><div class="lbl">Your note</div>${esc(s.note)}</div>`:""}
     <div class="crow">
       <button class="mini" data-toggle="${it.id}">${OPEN.has(it.id)?"▾ Less":"▸ Details"}</button>
@@ -920,8 +997,16 @@ function renderViews(){
 }
 function renderSrcChips(){
   const srcs=[...new Set(ITEMS.map(i=>i.source).filter(Boolean))].sort();
-  document.getElementById("srcchips").innerHTML=srcs.map(s=>
-    `<button class="chip ${FILT.src.has(s)?"on":""}" onclick="toggleSrc('${s}')">${esc(s)}</button>`).join("");
+  const el=document.getElementById("srcchips");
+  if(!srcs.length){ el.innerHTML=""; return; }
+  /* Labelled, because unlabelled it was indistinguishable from the active-filter
+     row below it — she clicked one and could not tell what had been applied.
+     Length-capped as belt-and-braces: pm_ingest now rejects a long `source`, but a
+     legacy card must still not render a sentence as a filter control. */
+  el.innerHTML='<span class="rowlbl">Filter by source</span>'
+    + srcs.map(x=>{const lbl=x.length>18?x.slice(0,18)+"…":x;
+        return `<button class="chip ${FILT.src.has(x)?"on":""}" title="${esc(x)}"
+                 onclick="toggleSrc('${esc(x).replace(/'/g,"\\'")}')">${esc(lbl)}</button>`;}).join("");
 }
 function renderTiles(){
   /* `open` = work on the main board. Waiting items are excluded because they are
@@ -934,7 +1019,13 @@ function renderTiles(){
   /* Assigned away ≠ waiting on someone. Assigning to Rafael keeps the card on
      her board in his lane; the waiting space is for work she cannot progress at
      all. Two different questions, so two different tiles. */
-  const assigned=open.filter(i=>cs(i.id).assignee&&cs(i.id).assignee!=="hadassa").length;
+  /* Claude is excluded here on purpose. Her words: "They shouldn't be kept
+     together with the other assigned away ones that are for other people."
+     A Rafael item is a request to a person; a Claude item is a queued job. */
+  const assigned=open.filter(i=>cs(i.id).assignee
+    && !["hadassa","claude"].includes(cs(i.id).assignee)).length;
+  const claudeQ=ITEMS.filter(i=>inClaudeQueue(i.id));
+  const claudeStale=claudeQ.filter(i=>{const h=queuedHours(i.id); return h!==null&&h>=24;}).length;
   const overdue=open.filter(i=>isOverdue(i)).length;
   const doneN=ITEMS.filter(i=>isDone(i.id)).length;
   /* "Done today" must mean today. On a board that hasn't been rolled, the done
@@ -954,7 +1045,9 @@ function renderTiles(){
     ${tile("Urgent",urgent,urgent?"bad":"","focusView({view:'board',openOnly:true,lane:'urgent'})")}
     ${tile("Waiting on",waitAll.length,"warn","focusView({view:'waiting'})")}
     ${waitDue?tile("To chase now",waitDue,"bad","focusView({view:'waiting',waitingDue:true})"):""}
-    ${assigned?tile("Assigned away",assigned,"","focusView({view:'people',openOnly:true,assignedAway:true})"):""}
+    ${claudeQ.length?tile(claudeStale?"With Claude · "+claudeStale+" overdue":"With Claude",
+        claudeQ.length,claudeStale?"bad":"","focusView({view:'claude'})"):""}
+    ${assigned?tile("Assigned to people",assigned,"","focusView({view:'people',openOnly:true,assignedAway:true})"):""}
     ${tile("Overdue",overdue,overdue?"bad":"","focusView({view:'board',openOnly:true,overdue:true})")}
     ${tile("Done today",doneToday,"ok","focusView({view:'done'})")}
     ${doneEarlier?tile("Done earlier",doneEarlier,"","focusView({view:'done'})"):""}
@@ -1141,9 +1234,14 @@ function renderFilterBar(){
   const el=document.getElementById("filterbar");
   el.style.display=on.length?"":"none";
   if(!on.length){ el.innerHTML=""; return; }
-  el.innerHTML='<span style="font-size:12px;color:var(--muted);font-weight:600">Showing only</span>'
+  /* "Showing 1 of 47" is the number that was missing. With filters stacked she
+     could see 1 card and had no way to tell whether the board was nearly empty or
+     nearly all hidden. */
+  const shown=visible().length, total=ITEMS.length;
+  el.innerHTML='<span class="rowlbl" style="color:var(--brand-deep)">Filters on</span>'
     + on.map(([label,key])=>`<button class="chip on" data-cf="${esc(key)}">${esc(label)} ✕</button>`).join("")
-    + '<button class="chip ghost" onclick="clearFilters()">Clear all</button>';
+    + '<button class="chip ghost" onclick="clearFilters()">Clear all</button>'
+    + `<span class="showing">showing ${shown} of ${total} cards</span>`;
   el.querySelectorAll("[data-cf]").forEach(b=>b.onclick=()=>{
     const k=b.getAttribute("data-cf");
     if(k.startsWith("src:")) FILT.src.delete(k.slice(4));

@@ -328,3 +328,101 @@ def test_malformed_waiting_block_cannot_crash_the_board(path):
     assert S.get_item(st, "mgp")["waiting"] is None
     assert S.get_item(st, "ray")["waiting"]["log"] == []
     S.counts(st)          # must not raise
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Delegation to Claude (2026-07-29)
+#
+# Hadassa: "what about the 'assigned away' that goes to claude? shouldn't them be
+# as done as well and flagged once done that was Claude by my order? They
+# shouldn't be kept together with the other assigned away ones that are for other
+# people. and once I click 'claude' to run that task by itself, how will I know
+# it'll be done in time? when will you know that you're supposed to do it?"
+# ══════════════════════════════════════════════════════════════════════════
+
+def test_delegating_to_claude_stamps_when_the_clock_started(path):
+    now = datetime.datetime(2026, 7, 29, 17, 0).astimezone()
+    S.apply_click("mgp", {"assignee": "claude"}, path=path, now=now)
+    it = _get(path, "mgp")
+    assert it["claude_queued_at"].startswith("2026-07-29T17:00")
+    # Her question was about TIME. Time is unanswerable without this stamp.
+    later = datetime.datetime(2026, 7, 30, 5, 0).astimezone()
+    assert round(S.hours_queued(it, now=later)) == 12
+
+
+def test_requeueing_does_not_reset_the_clock(path):
+    """A re-render or a second click must not make an old item look fresh."""
+    t0 = datetime.datetime(2026, 7, 29, 9, 0).astimezone()
+    S.apply_click("mgp", {"assignee": "claude"}, path=path, now=t0)
+    first = _get(path, "mgp")["claude_queued_at"]
+    S.apply_click("mgp", {"assignee": "claude"},
+                  path=path, now=datetime.datetime(2026, 7, 29, 15, 0).astimezone())
+    assert _get(path, "mgp")["claude_queued_at"] == first
+
+
+def test_taking_it_back_clears_the_clock(path):
+    S.apply_click("mgp", {"assignee": "claude"}, path=path)
+    S.apply_click("mgp", {"assignee": "hadassa"}, path=path)
+    it = _get(path, "mgp")
+    assert it["assignee"] is None and it["claude_queued_at"] is None
+
+
+def test_unstamped_legacy_item_reports_none_not_zero(path):
+    """Cards delegated before the field existed must not look freshly queued."""
+    st, _ = S.load_state(path)
+    S.get_item(st, "mgp")["assignee"] = "claude"
+    S.save_state(st, path)
+    assert S.hours_queued(_get(path, "mgp")) is None
+
+
+def test_claude_queue_is_oldest_first_and_open_only(path):
+    S.apply_click("ray", {"assignee": "claude"}, path=path,
+                  now=datetime.datetime(2026, 7, 29, 14, 0).astimezone())
+    S.apply_click("mgp", {"assignee": "claude"}, path=path,
+                  now=datetime.datetime(2026, 7, 29, 9, 0).astimezone())
+    S.apply_click("plain", {"assignee": "claude"}, path=path)
+    S.complete_by_claude("plain", "finished it", path=path)
+    st, _ = S.load_state(path)
+    assert [i["id"] for i in S.claude_queue(st)] == ["mgp", "ray"]
+
+
+def test_complete_by_claude_records_who_and_what(path):
+    S.apply_click("mgp", {"assignee": "claude"}, path=path)
+    res = S.complete_by_claude("mgp", "Sent the COI request and filed the reply.",
+                               path=path)
+    assert res["ok"] and res["done_by"] == "claude"
+    it = _get(path, "mgp")
+    assert it["status"] == "done"
+    assert it["done_by"] == "claude"
+    assert it["claude_result"] == "Sent the COI request and filed the reply."
+
+
+def test_claude_cannot_close_work_she_never_delegated(path):
+    """Otherwise Claude would be deciding her priorities, not executing them."""
+    res = S.complete_by_claude("plain", "did it", path=path)
+    assert res["error"]
+    assert _get(path, "plain")["status"] == "open"
+
+
+def test_a_bare_done_with_no_result_is_refused(path):
+    S.apply_click("mgp", {"assignee": "claude"}, path=path)
+    assert S.complete_by_claude("mgp", "   ", path=path)["error"]
+    assert _get(path, "mgp")["status"] == "open"
+
+
+def test_her_own_tick_is_never_credited_to_claude(path):
+    """The board is a record of HER day; the daily report is built off it."""
+    S.apply_click("mgp", {"assignee": "claude"}, path=path)
+    S.apply_click("mgp", {"done": True}, path=path)      # she ticks it herself
+    it = _get(path, "mgp")
+    assert it["done_by"] == "hadassa"
+    assert it["claude_result"] is None
+
+
+def test_claude_completion_is_not_credited_to_her(path):
+    S.apply_click("ray", {"assignee": "claude"}, path=path)
+    S.complete_by_claude("ray", "Drafted and filed.", path=path)
+    assert _get(path, "ray")["done_by"] == "claude"
+    # …and reopening clears the attribution rather than leaving a stale claim.
+    S.apply_click("ray", {"done": False}, path=path)
+    assert _get(path, "ray")["done_by"] is None

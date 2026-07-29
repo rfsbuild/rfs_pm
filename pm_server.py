@@ -67,6 +67,13 @@ def to_ui(state):
             "waiting": it.get("waiting"),
             "waiting_due": S.nudge_due(it),
             "waiting_stale_days": S.days_since_update(it) if it.get("waiting") else 0,
+            # Delegation to Claude (2026-07-29). `done_by` must reach the UI or a
+            # Claude completion renders identically to hers, and the board stops
+            # being a record of HER day.
+            "claude_queued_at": it.get("claude_queued_at"),
+            "queued_hours": S.hours_queued(it) if it.get("assignee") == "claude" else None,
+            "done_by": it.get("done_by"),
+            "claude_result": it.get("claude_result"),
         }
     return items, clicks
 
@@ -121,6 +128,7 @@ class Handler(BaseHTTPRequestHandler):
                 "stale_day": state.get("brief_date") != S._today(),
                 "today": S._today(),
                 "counts": S.counts(state),
+                "claude_queue": len(S.claude_queue(state)),
                 "lanes": list(S.LANES),
                 "assignees": list(S.ASSIGNEES),
                 "defer_reasons": S.DEFER_REASONS,

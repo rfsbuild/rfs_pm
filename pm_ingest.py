@@ -181,6 +181,19 @@ def validate(items, existing=None):
         if it.get("_relane") and not it.get("lane"):
             errs.append("%s sets _relane but gives no `lane` to move it to"
                         % where)
+        # `source` is a FILTER TOKEN, not a description. On 2026-07-29 a briefing
+        # set it to "Hadassa 7/29 — her answers on the pending-Rafael items", which
+        # rendered as a sentence-long chip in the source filter row and made that
+        # whole control read as broken. The describing goes in `meta`.
+        src = it.get("source")
+        if src is not None:
+            if not str(src).strip():
+                errs.append("%s has an empty `source`" % where)
+            elif len(str(src)) > 24 or str(src).count(" ") > 1:
+                errs.append("%s `source` must be a short token like 'slack' or "
+                            "'bt' (max 24 chars, at most one space) — it renders as "
+                            "a filter chip. Put the description in `meta`. Got %r"
+                            % (where, src))
         if it.get("lane") and it["lane"] not in S.LANES:
             errs.append("%s lane %r not in %s" % (where, it["lane"], S.LANES))
         if it.get("kind") and not isinstance(it["kind"], str):
