@@ -215,6 +215,13 @@ def new_item(id, subject, **kw):
         "assignee": None, "note": None, "followup": None,
         "dismiss_reason": None, "dismissed_at": None,
         "first_seen": None, "last_seen": None,
+        # `did` was added to ITEM_FIELDS on 2026-07-28 but not here, so no item
+        # created through new_item carried the key — and because normalize()
+        # backfills from new_item(), it could not repair it either. The daily
+        # report reads i["did"] directly at gen_daily_report.py:246 (safe today
+        # only because the reportable filter already proved it truthy). Declared
+        # here so the key always exists and normalize() can heal older files.
+        "did": None,
     }
     for k, v in kw.items():
         if k in ITEM_FIELDS:

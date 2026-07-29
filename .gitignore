@@ -1,6 +1,23 @@
-# Her actual board — client names, amounts, private notes. Never commit.
+# ── Her actual board data. Client names, amounts, private notes. NEVER commit. ──
+# The repo backs up CODE. The board itself lives only on this Mac + its backups.
 pm_state.json
 pm_state.json.bak
+pm_state.json.bak_*
+pm_state.json.bak*
+*.bak
+*.bak_*
+
+# The permanent record of finished work, written by roll_forward → archive_finished.
+# Carries her `did` and `note` verbatim — the most sensitive content in the repo,
+# because it is the narrative of what she actually did, per client. Added
+# 2026-07-29, the same session the archive started being written: it was
+# untracked-but-not-ignored, one `git add -A` away from GitHub.
+history/
+
+# Briefings are built from Gmail, Slack and BuilderTrend and quote clients,
+# subs, amounts and Rafael's messages verbatim. Same reasoning as the board.
+briefings/
+
 *.tmp
 .pm_state.lock
 logs/
