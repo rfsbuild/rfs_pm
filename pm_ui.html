@@ -136,10 +136,28 @@ a{color:var(--brand-deep);}
 .act{margin:0 14px 12px;background:var(--brand-soft);border-radius:8px;padding:9px 11px;font-size:13.5px;}
 .act .lbl{font-size:9.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--brand-deep);font-weight:750;margin-bottom:2px;}
 .act .txt[contenteditable="true"]:focus{outline:none;background:#fff;border-radius:4px;padding:2px 4px;}
-/* ── The split (2026-07-29): what Claude already did vs what only she can do. ──
-   Sits ABOVE the fold, outside the Details drawer, on purpose: the whole value
-   is seeing "the draft is already written" without opening anything. */
-.split{margin:0 14px 12px;display:grid;grid-template-columns:1fr 1fr;gap:9px;}
+/* ── Fold bars (2026-07-29) ── The split and the email are COLLAPSED by default.
+   The bar always states what is inside — the two counts, or the recipient — so
+   folding never hides the fact that work is sitting there. The email's Copy
+   buttons live on the bar itself, so the common path costs zero clicks of
+   expanding. */
+.foldwrap{margin:0 14px 10px;}
+.foldbar{display:flex;align-items:center;gap:7px;width:100%;
+  background:var(--rule-soft);border:1px solid var(--rule);border-radius:8px;
+  padding:6px 10px;font-size:12px;cursor:pointer;text-align:left;}
+.foldbar:hover{background:#eceef6;}
+.foldbar .fi{color:var(--faint);font-size:10px;width:9px;flex:none;}
+.foldbar .fc{font-weight:700;}
+.foldbar .fc.ok{color:var(--ok);} .foldbar .fc.br{color:var(--brand-deep);}
+.foldbar .fc.mail{color:var(--brand-deep);}
+.foldbar .fsep{color:var(--faint);}
+.foldbar .fto{color:var(--muted);font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.foldbar.mailbar{cursor:default;}
+.foldbar .fexp{display:flex;align-items:center;gap:7px;background:none;border:0;
+  padding:0;cursor:pointer;text-align:left;min-width:0;}
+.foldbar .fspace{flex:1;}
+.pbtn.sm{padding:3px 10px;font-size:11.5px;}
+.split{margin:9px 0 0;display:grid;grid-template-columns:1fr 1fr;gap:9px;}
 @media(max-width:720px){.split{grid-template-columns:1fr;}}
 .split .col{border-radius:8px;padding:8px 11px;font-size:12.5px;}
 .split .col.cd{background:var(--ok-bg);}
@@ -170,7 +188,10 @@ input[type=date].mini{color:var(--muted);}
 .lk{font-size:11.5px;text-decoration:none;background:var(--card);border:1px solid var(--rule);
   padding:3px 9px;border-radius:20px;color:var(--brand-deep);font-weight:600;}
 .lk:hover{border-color:var(--brand);background:var(--brand-soft);}
-.draft{margin-top:11px;border:1px solid var(--rule);border-radius:9px;background:#fff;overflow:hidden;}
+.draft{margin-top:9px;border:1px solid var(--rule);border-radius:9px;background:#fff;overflow:hidden;}
+.draft .dsub,.draft .dto{font-size:12px;color:var(--muted);margin:0 0 5px;
+  overflow-wrap:break-word;}
+.draft .dto{margin-bottom:8px;}
 .draft .dh{background:var(--rule-soft);padding:7px 11px;font-size:12px;font-weight:700;
   display:flex;gap:8px;align-items:center;}
 .draft .dh .to{font-weight:500;color:var(--muted);margin-left:auto;font-size:11.5px;}
@@ -335,6 +356,14 @@ kbd{background:var(--rule-soft);border:1px solid var(--rule);border-bottom-width
 /* ════════ state ════════ */
 let ITEMS=[], CLICK={}, META={}, VIEW="today", CURSOR=-1;
 let SEL=new Set(), UNDO=null, OPEN=new Set();
+/* Collapsed by DEFAULT (2026-07-29, her ask: "can we default toggle
+   claude-doing / hadassa-doing and emails too?"). Once every card carried a
+   split plus a 340px-tall email, 35 cards became an unscrollable wall.
+   Collapsed is not hidden: each bar states what is inside (the counts, the
+   recipient) and the Copy buttons live ON the bar, so the common case — paste
+   and send — needs no expand at all. Sets, not <details>, because the board
+   re-renders wholesale and native open state would be lost every render. */
+let SPLIT_OPEN=new Set(), MAIL_OPEN=new Set();
 /* Filters. `lane`/`overdue`/`assignedAway` exist so a stat tile can land on a
    view holding exactly the items it counted — see focusView(). */
 const FILT={openOnly:false, mine:false, dueSoon:false, overdue:false,
@@ -549,7 +578,7 @@ function card(it){
     ${it.action?`<div class="act"><div class="lbl">Your action</div>
        <div class="txt" contenteditable="true" data-act="${it.id}">${esc(it.action)}</div></div>`:""}
     ${splitBlock(it)}
-    ${it.draft?`<div style="margin:0 14px 12px">${draftBlock(it)}</div>`:""}
+    ${mailBlock(it)}
     ${drop?`<div class="dismissbox"><div class="lbl">Not needed — your reason</div>${esc(s.dismiss_reason||"")}</div>`:""}
     ${s.note?`<div class="notebox"><div class="lbl">Your note</div>${esc(s.note)}</div>`:""}
     <div class="crow">
@@ -588,25 +617,57 @@ function card(it){
 function splitBlock(it){
   const cd=(it.claudeDone||[]).filter(Boolean), ht=(it.hadassaTodo||[]).filter(Boolean);
   if(!cd.length && !ht.length) return "";
+  const open=SPLIT_OPEN.has(it.id);
+  const bar=`<button class="foldbar" data-fsplit="${it.id}">
+      <span class="fi">${open?"▾":"▸"}</span>
+      <span class="fc ok">✅ ${cd.length} done for you</span>
+      <span class="fsep">·</span>
+      <span class="fc br">👤 ${ht.length} need${ht.length===1?"s":""} you</span>
+    </button>`;
+  if(!open) return `<div class="foldwrap">${bar}</div>`;
   const li=a=>a.length?`<ul>${a.map(x=>`<li>${x}</li>`).join("")}</ul>`
                       :`<div class="none">nothing — see the action above</div>`;
-  return `<div class="split">
-    <div class="col cd"><div class="lbl">✅ Claude already did</div>${li(cd)}</div>
-    <div class="col ht"><div class="lbl">👤 Only you can do</div>${li(ht)}</div>
+  return `<div class="foldwrap">${bar}
+    <div class="split">
+      <div class="col cd"><div class="lbl">✅ Claude already did</div>${li(cd)}</div>
+      <div class="col ht"><div class="lbl">👤 Only you can do</div>${li(ht)}</div>
+    </div>
+  </div>`;
+}
+/* The email, collapsed. The Copy buttons sit on the BAR deliberately: the whole
+   point of a written draft is a paste and a send, and that must not cost an
+   expand. Expanding is for reading and editing it. */
+function mailBlock(it){
+  if(!it.draft) return "";
+  const open=MAIL_OPEN.has(it.id), to=(it.draft.to||"");
+  const short=to.length>52?to.slice(0,52)+"…":to;
+  return `<div class="foldwrap">
+    <div class="foldbar mailbar">
+      <button class="fexp" data-fmail="${it.id}">
+        <span class="fi">${open?"▾":"▸"}</span>
+        <span class="fc mail">✉️ Email ready</span>
+        <span class="fto">→ ${esc(short)}</span>
+      </button>
+      <span class="fspace"></span>
+      <button class="pbtn sm" data-copybody="${it.id}">Copy email</button>
+      <button class="mini" data-copyto="${it.id}">Copy recipients</button>
+      <span class="ok-flash" id="ok-${it.id}">✓ copied</span>
+    </div>
+    ${open?draftBlock(it):""}
   </div>`;
 }
 function draftBlock(it){
   const d=it.draft||{};
+  /* No header and no Copy buttons here — mailBlock's bar carries both, so this
+     is only the readable/editable body. Duplicating them would also duplicate
+     the `ok-<id>` element id, and the copy flash would fire on the wrong one. */
   return `<div class="draft">
-    <div class="dh">✉️ Suggested email<span class="to">to ${esc(d.to||"")}</span></div>
     <div class="db">
-      <p style="font-size:12px;color:var(--muted);margin:0 0 6px"><b>Subject:</b> ${esc(d.subject||"")}</p>
+      <p class="dsub"><b>Subject:</b> ${esc(d.subject||"")}</p>
+      <p class="dto"><b>To:</b> ${esc(d.to||"")}</p>
       <textarea data-draft="${it.id}">${esc(d.body||"")}</textarea>
       <div class="dacts">
-        <button class="pbtn" data-copybody="${it.id}">Copy email</button>
-        <button class="mini" data-copyto="${it.id}">Copy recipients</button>
         <button class="mini" data-sent="${it.id}">Mark sent &amp; done</button>
-        <span class="ok-flash" id="ok-${it.id}">✓ copied</span>
       </div>
     </div>
   </div>`;
@@ -672,6 +733,14 @@ function wire(){
     const id=el.getAttribute("data-toggle");
     OPEN.has(id)?OPEN.delete(id):OPEN.add(id); render();
   });
+  document.querySelectorAll("[data-fsplit]").forEach(el=>el.onclick=()=>{
+    const id=el.getAttribute("data-fsplit");
+    SPLIT_OPEN.has(id)?SPLIT_OPEN.delete(id):SPLIT_OPEN.add(id); render();
+  });
+  document.querySelectorAll("[data-fmail]").forEach(el=>el.onclick=()=>{
+    const id=el.getAttribute("data-fmail");
+    MAIL_OPEN.has(id)?MAIL_OPEN.delete(id):MAIL_OPEN.add(id); render();
+  });
   document.querySelectorAll("[data-drop]").forEach(el=>el.onclick=()=>openDismiss(el.getAttribute("data-drop")));
   document.querySelectorAll("[data-undrop]").forEach(el=>el.onclick=()=>{
     const id=el.getAttribute("data-undrop"); undismiss(id).then(()=>render());
@@ -717,7 +786,11 @@ function wire(){
   });
   document.querySelectorAll("[data-copybody]").forEach(el=>el.onclick=()=>{
     const id=el.getAttribute("data-copybody");
-    copy(document.querySelector(`[data-draft="${id}"]`).value,id);
+    // The textarea only exists while the mail block is expanded. Fall back to
+    // the stored body so Copy works straight off the collapsed bar — that is
+    // the common case, and it must not require an expand.
+    const ta=document.querySelector(`[data-draft="${id}"]`);
+    copy(ta?ta.value:((byId(id).draft||{}).body||""),id);
   });
   document.querySelectorAll("[data-copyto]").forEach(el=>el.onclick=()=>{
     const id=el.getAttribute("data-copyto"); copy((byId(id).draft||{}).to||"",id);
@@ -788,7 +861,11 @@ function renderFilterBar(){
 }
 function toggleFilter(k){ FILT[k]=!FILT[k]; syncChips(); render(); }
 function toggleSrc(s){ FILT.src.has(s)?FILT.src.delete(s):FILT.src.add(s); render(); }
-function expandAll(on){ OPEN=on?new Set(ITEMS.map(i=>i.id)):new Set(); render(); }
+function expandAll(on){
+  const all=on?new Set(ITEMS.map(i=>i.id)):new Set();
+  OPEN=all; SPLIT_OPEN=on?new Set(all):new Set(); MAIL_OPEN=on?new Set(all):new Set();
+  render();
+}
 function jump(id){ OPEN.add(id); render();
   const el=document.getElementById("c-"+id);
   if(el){ el.scrollIntoView({behavior:"smooth",block:"center"});
