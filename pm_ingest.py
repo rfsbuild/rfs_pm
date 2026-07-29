@@ -205,8 +205,10 @@ def validate(items, existing=None):
             if not eff.get("draft"):
                 errs.append("%s looks like a CHASE (it asks her to get "
                             "something from a person) but ships no `draft`. "
-                            "Add a ready-to-send message, or explain in "
-                            "claude_done why one is impossible." % where)
+                            "Add a ready-to-send message, or set `_no_draft` "
+                            "to a sentence saying why one is impossible — "
+                            "prose in claude_done does not satisfy this rule."
+                            % where)
             else:
                 bad = draft_is_sendable(eff["draft"])
                 if bad:

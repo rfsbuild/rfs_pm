@@ -697,7 +697,14 @@ function render(){
            <span class="rank">${n+1}</span><span class="fs">${esc(it.subject)}</span>
            <span class="t">${esc(it.project||it.kind||"")}</span></div>`));
     }
-    ["urgent","action"].forEach(l=>group(b,LANE_LABEL[l],sortItems(vis.filter(i=>lane(i)===l))));
+    /* OPEN only, and that is not a style choice — the Today badge counts open
+       urgent+action items, so rendering the done ones here made the tab claim 4
+       and show 11. Same defect class as the Open tile on 2026-07-29: a count and
+       the view it opens computed by different rules. Finished work keeps its
+       record in the Done tab and in the % ring; it has no claim on the tab whose
+       whole question is "what is left today". */
+    ["urgent","action"].forEach(l=>group(b,LANE_LABEL[l],
+      sortItems(vis.filter(i=>lane(i)===l && stat(i.id)==="open"))));
   } else if(VIEW==="board"){
     Object.keys(LANE_LABEL).forEach(l=>group(b,LANE_LABEL[l],sortItems(vis.filter(i=>lane(i)===l))));
   } else if(VIEW==="project"){
@@ -741,7 +748,10 @@ function card(it){
   if(s.defer) tags+=`<span class="t def">${esc(DEFERS[s.defer]||s.defer)}${(s.deferDays>1)?" · day "+s.deferDays:""}</span>`;
   /* A waiting card is tagged in every view that can show it (Done and
      Not-needed included), so a finished item still says how it got there. */
-  if(wOf(it.id)) tags+=`<span class="t def">👤 waiting on ${esc((wOf(it.id).who||"?").split(/[ (]/)[0]||"?")}</span>`;
+  /* Show the whole name, only length-capped. Taking the first token turned
+     "the 98 Wyman subs" into "waiting on the", which is worse than no tag. */
+  if(wOf(it.id)){ const wn=String(wOf(it.id).who||"").trim()||"— who? —";
+    tags+=`<span class="t def">👤 waiting on ${esc(wn.length>22?wn.slice(0,22)+"…":wn)}</span>`; }
   if(it.due){ const late=it.due<todayStr();
     tags+=`<span class="t due ${late?"":"soon"}">📅 ${esc(it.due)}${late?" overdue":""}</span>`; }
   if(it.unconfirmed) tags+=`<span class="t unconf">unconfirmed</span>`;
