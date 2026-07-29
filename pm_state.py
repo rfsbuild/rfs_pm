@@ -44,6 +44,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 STATE_PATH = ROOT / "pm_state.json"
 LOCK_PATH = ROOT / ".pm_state.lock"
+# Finished work is archived here per day at the roll — see roll_forward().
+HISTORY_DIR = ROOT / "history"
 
 SCHEMA = 1
 
@@ -553,28 +555,37 @@ def roll_forward(to_date=None, path=STATE_PATH, now=None):
     which was correct and tested — what changes is the mechanism: a state
     transition instead of a browser export handed through the filesystem.
 
-      · done items DROP (they had their day; the log keeps them)
+      · finished items (done + dismissed) are ARCHIVED to history/, then leave
       · every surviving item ages +1
       · defer_days >= 3 escalates the item to the urgent lane
       · is_new clears — nothing carried is "new overnight"
 
     Idempotent per day: calling it twice for the same brief_date is a no-op,
     so a double app restart can't silently age everything twice.
+
+    THE ARCHIVE IS NOT OPTIONAL. The first version dropped completed items and
+    kept only a COUNT in the roll log, so the moment she pressed "Start new
+    day" the subject, her `note` and her `did` — the whole record of what she
+    actually did — were destroyed. That record is the raw material for the
+    daily report AND for the weekly per-project customer report, so it has to
+    outlive the board. Archived first, inside the same lock, before the state
+    that references it is rewritten.
     """
     def _fn(state):
         target = to_date or _today(now)
         if state.get("brief_date") == target:
             return {"skipped": "already rolled", "brief_date": target}
-        carried, dropped, escalated, dismissed = [], 0, [], []
+        from_date = state.get("brief_date") or _today(now)
+        carried, dropped, escalated, dismissed, finished = [], 0, [], [], []
         for it in state["items"]:
             if it.get("status") == "dismissed":
-                # Leaves the board like a completed item, but the reason is
-                # preserved in the roll log so the daily report can explain it.
                 dismissed.append({"id": it["id"], "subject": it.get("subject"),
                                   "reason": it.get("dismiss_reason")})
+                finished.append(it)
                 continue
             if it.get("status") == "done":
                 dropped += 1
+                finished.append(it)
                 continue
             nit = dict(it)
             nit["age"] = int(nit.get("age") or 0) + 1
@@ -584,20 +595,81 @@ def roll_forward(to_date=None, path=STATE_PATH, now=None):
                 nit["moved"] = "3+ days open"
                 escalated.append(nit["id"])
             carried.append(nit)
+        archived_to = archive_finished(from_date, finished) if finished else None
         entry = {
             "at": _now_iso(now),
-            "from_date": state.get("brief_date"),
+            "from_date": from_date,
             "to_date": target,
             "carried": len(carried),
             "dropped": dropped,
             "escalated": escalated,
             "dismissed": dismissed,
+            "archived": len(finished),
+            "archive_file": archived_to,
         }
         state["items"] = carried
         state["brief_date"] = target
         state["roll_log"].append(entry)
         return entry
     return _mutate(_fn, path, now)[1]
+
+
+# ── history (the permanent record of finished work, per day) ──
+
+def archive_finished(day, items, root=None):
+    """Append finished items to history/<day>.json, merging by id.
+
+    Returns the path written. Merge-by-id rather than overwrite so a re-run can
+    never truncate a day that already has records.
+    """
+    hdir = Path(root or HISTORY_DIR)
+    hdir.mkdir(parents=True, exist_ok=True)
+    fp = hdir / ("%s.json" % day)
+    existing = {}
+    if fp.exists():
+        try:
+            with open(fp) as f:
+                for rec in json.load(f).get("items", []):
+                    existing[rec.get("id")] = rec
+        except Exception:
+            pass          # a corrupt archive must not block the roll
+    for it in items:
+        existing[it.get("id")] = dict(it)
+    _atomic_write_json(fp, {"date": day, "archived_at": _now_iso(),
+                            "items": list(existing.values())})
+    return str(fp)
+
+
+def load_history(day, root=None):
+    """Finished items for one day. [] when that day has no archive."""
+    fp = Path(root or HISTORY_DIR) / ("%s.json" % day)
+    if not fp.exists():
+        return []
+    try:
+        with open(fp) as f:
+            return json.load(f).get("items", [])
+    except Exception:
+        return []
+
+
+def history_between(start, end, root=None):
+    """Finished items with start <= day <= end, each tagged with its `day`.
+
+    This is what a weekly per-project customer report reads: the work that was
+    actually completed in a date range, grouped however the caller wants.
+    """
+    hdir = Path(root or HISTORY_DIR)
+    if not hdir.exists():
+        return []
+    out = []
+    for fp in sorted(hdir.glob("*.json")):
+        day = fp.stem
+        if start <= day <= end:
+            for rec in load_history(day, root=hdir):
+                rec = dict(rec)
+                rec["day"] = day
+                out.append(rec)
+    return out
 
 
 # Both must carry evidence before the board counts as swept. Slack alone is

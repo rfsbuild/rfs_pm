@@ -263,6 +263,7 @@ kbd{background:var(--rule-soft);border:1px solid var(--rule);border-bottom-width
     <button class="chip ghost" onclick="expandAll(false)">Collapse</button>
   </div>
   <div class="tools" id="srcchips" style="padding-top:0"></div>
+  <div class="tools" id="filterbar" style="padding-top:0;display:none"></div>
   <div class="tiles" id="tiles"></div>
   <div class="addbar">
     <input id="addq" placeholder="+  Add a task —  type it and press Enter">
@@ -307,7 +308,10 @@ kbd{background:var(--rule-soft);border:1px solid var(--rule);border-bottom-width
 /* ════════ state ════════ */
 let ITEMS=[], CLICK={}, META={}, VIEW="today", CURSOR=-1;
 let SEL=new Set(), UNDO=null, OPEN=new Set();
-const FILT={openOnly:false, mine:false, dueSoon:false, src:new Set(), q:""};
+/* Filters. `lane`/`overdue`/`assignedAway` exist so a stat tile can land on a
+   view holding exactly the items it counted — see focusView(). */
+const FILT={openOnly:false, mine:false, dueSoon:false, overdue:false,
+            assignedAway:false, lane:null, src:new Set(), q:""};
 const LANE_LABEL={urgent:"🔴 Urgent",action:"🟠 Action Today",week:"🟡 This Week",
   rafael:"Pending Rafael",guilherme:"Pending Gui",claude:"🤖 Claude",noise:"Noise / FYI"};
 const DEFERS={"no-time":"⏰ No time today","waiting":"👤 Waiting for someone",
@@ -320,7 +324,15 @@ const esc=s=>String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;")
   .replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 const cs=id=>CLICK[id]||(CLICK[id]={done:false,assignee:null,defer:null,deferDays:0,note:null,project:null});
 const byId=id=>ITEMS.find(i=>i.id===id);
-const todayStr=()=>new Date().toISOString().slice(0,10);
+/* LOCAL calendar day, never UTC. `toISOString()` is UTC, so after 20:00 EDT it
+   returns tomorrow and every due-date badge flips a day early — the same class
+   of bug that made her 10:08 completion read as 14:08 (see pm_state.py). */
+const localDay=d=>{const x=d||new Date();
+  return new Date(x.getTime()-x.getTimezoneOffset()*60000).toISOString().slice(0,10);};
+const todayStr=()=>localDay();
+const dayAhead=n=>{const d=new Date(); d.setDate(d.getDate()+n); return localDay(d);};
+const isOverdue=it=>!!it.due && it.due<todayStr();
+const isDueSoon=it=>!!it.due && it.due<=dayAhead(7);   /* overdue or landing this week */
 
 /* effective lane — mirrors pm_state.effective_lane so UI and server agree */
 function lane(it){
@@ -335,6 +347,16 @@ function lane(it){
 const stat=id=>cs(id).status||(cs(id).done?"done":"open");
 const isDone=id=>stat(id)==="done";
 const isDrop=id=>stat(id)==="dismissed";
+/* `status` and `done` must move together. The server is authoritative but only
+   answers AFTER the re-render, and its reply carries no status; flipping `done`
+   alone leaves stat() reading the stale `status`, so the card looks finished
+   while every counter, the sink order and the Done view still call it open.
+   That is the bug Hadassa hit on 2026-07-29. */
+function setLocalDone(id,v){ const s=cs(id); s.done=!!v; s.status=v?"done":"open";
+  /* stamp done_at optimistically too — the "Done today" tile reads it, and it
+     must be right even if the server is slow or down. save() overwrites it with
+     the server's authoritative value. */
+  s.done_at = v ? new Date().toISOString() : null; }
 const rank=it=>isDrop(it.id)?3:(isDone(it.id)?2:(cs(it.id).defer?1:0));
 const KR={compliance:0,pay:1,overdue:1,action:2};
 
@@ -408,7 +430,10 @@ function visible(){
     if(VIEW!=="done" && VIEW!=="dropped" && isDrop(it.id)) return false;
     if(VIEW!=="done" && FILT.openOnly && isDone(it.id)) return false;
     if(FILT.mine && s.assignee) return false;
-    if(FILT.dueSoon && !it.due) return false;
+    if(FILT.assignedAway && !(s.assignee && s.assignee!=="hadassa")) return false;
+    if(FILT.overdue && !isOverdue(it)) return false;
+    if(FILT.dueSoon && !isDueSoon(it)) return false;
+    if(FILT.lane && lane(it)!==FILT.lane) return false;
     if(FILT.src.size && !FILT.src.has(it.source)) return false;
     if(q){
       const hay=[it.subject,it.meta,it.action,it.project,it.source,s.note,
@@ -425,7 +450,7 @@ function sortItems(a){
 
 /* ════════ render ════════ */
 function render(){
-  renderViews(); renderSrcChips(); renderTiles();
+  renderViews(); renderSrcChips(); renderTiles(); renderFilterBar();
   const b=document.getElementById("board"); b.innerHTML="";
   const vis=visible();
   if(!vis.length){ b.innerHTML='<div class="empty">Nothing matches. Clear the filters or search.</div>'; return; }
@@ -465,7 +490,9 @@ function group(b,title,arr){
 }
 
 function card(it){
-  const s=cs(it.id), l=lane(it), done=!!s.done;
+  /* Read done through stat(), the same source the counters and sink order use —
+     never off `s.done` alone, or the card and the tiles can disagree. */
+  const s=cs(it.id), l=lane(it), done=isDone(it.id);
   const drop=isDrop(it.id);
   const cls=["card",done?"done":"",drop?"dismissed":"",
              (!done&&!drop&&l==="urgent")?"urgent":"",
@@ -543,12 +570,16 @@ function draftBlock(it){
 
 function renderViews(){
   const v=document.getElementById("views");
+  const cur=VIEW;
   v.innerHTML=VIEWS.map(([k,label])=>{
-    let n;
-    if(k==="done") n=ITEMS.filter(i=>isDone(i.id)).length;
-    else if(k==="dropped") n=ITEMS.filter(i=>isDrop(i.id)).length;
-    else if(k==="today") n=ITEMS.filter(i=>stat(i.id)==="open"&&["urgent","action"].includes(lane(i))).length;
-    else n=ITEMS.filter(i=>stat(i.id)==="open").length;
+    /* The badge is computed by actually running that tab's own filter, so the
+       number on a tab always equals the number of cards it will render. The old
+       version badged "11 open" on tabs that then rendered all 41 items. */
+    VIEW=k;
+    let n=visible().length;
+    if(k==="today") n=visible().filter(i=>stat(i.id)==="open"
+      && ["urgent","action"].includes(lane(i))).length;
+    VIEW=cur;
     return `<button class="vtab ${VIEW===k?"on":""}" onclick="setView('${k}')">${label}<span class="n">${n}</span></button>`;
   }).join("");
 }
@@ -561,18 +592,25 @@ function renderTiles(){
   const open=ITEMS.filter(i=>!isDone(i.id)&&!isDrop(i.id));
   const urgent=open.filter(i=>lane(i)==="urgent").length;
   const waiting=open.filter(i=>cs(i.id).assignee&&cs(i.id).assignee!=="hadassa").length;
-  const overdue=open.filter(i=>i.due&&i.due<todayStr()).length;
+  const overdue=open.filter(i=>isOverdue(i)).length;
   const doneN=ITEMS.filter(i=>isDone(i.id)).length;
+  /* "Done today" must mean today. On a board that hasn't been rolled, the done
+     items are yesterday's — calling them today's overstates the day's work. */
+  const doneToday=ITEMS.filter(i=>isDone(i.id)
+    && (cs(i.id).done_at||"").slice(0,10)===todayStr()).length;
+  const doneEarlier=doneN-doneToday;
   const dropN=ITEMS.filter(i=>isDrop(i.id)).length;
   const denom=ITEMS.length-dropN;   /* dismissing work must not inflate progress */
   const pct=denom?Math.round(doneN/denom*100):0;
+  /* Every tile lands on a view filtered to exactly what it counted. */
   document.getElementById("tiles").innerHTML=`
-    ${tile("Open",open.length,"","setView('board')")}
-    ${tile("Urgent",urgent,urgent?"bad":"","setView('board')")}
-    ${tile("Waiting on others",waiting,"warn","setView('people')")}
-    ${tile("Overdue",overdue,overdue?"bad":"","toggleFilter('dueSoon')")}
-    ${tile("Done today",doneN,"ok","setView('done')")}
-    ${dropN?tile("Not needed",dropN,"","setView('dropped')"):""}`;
+    ${tile("Open",open.length,"","focusView({view:'board',openOnly:true})")}
+    ${tile("Urgent",urgent,urgent?"bad":"","focusView({view:'board',openOnly:true,lane:'urgent'})")}
+    ${tile("Waiting on others",waiting,"warn","focusView({view:'people',openOnly:true,assignedAway:true})")}
+    ${tile("Overdue",overdue,overdue?"bad":"","focusView({view:'board',openOnly:true,overdue:true})")}
+    ${tile("Done today",doneToday,"ok","focusView({view:'done'})")}
+    ${doneEarlier?tile("Done earlier",doneEarlier,"","focusView({view:'done'})"):""}
+    ${dropN?tile("Not needed",dropN,"","focusView({view:'dropped'})"):""}`;
   const c=2*Math.PI*16;
   document.getElementById("ringfg").setAttribute("stroke-dasharray",(pct/100*c)+" "+c);
   document.getElementById("ringtxt").textContent=pct+"%";
@@ -583,7 +621,7 @@ const tile=(k,v,cl,fn)=>`<div class="tile ${cl}" onclick="${fn}"><div class="k">
 function wire(){
   document.querySelectorAll("[data-done]").forEach(el=>el.onchange=()=>{
     const id=el.getAttribute("data-done"); pushUndo(id);
-    cs(id).done=el.checked; save(id).then(()=>render());
+    setLocalDone(id,el.checked); save(id).then(()=>render());
     toast(el.checked?"Marked done":"Reopened");
   });
   document.querySelectorAll("[data-toggle]").forEach(el=>el.onclick=()=>{
@@ -642,7 +680,7 @@ function wire(){
   });
   document.querySelectorAll("[data-sent]").forEach(el=>el.onclick=()=>{
     const id=el.getAttribute("data-sent"); pushUndo(id);
-    cs(id).done=true; save(id).then(()=>render()); toast("Marked sent and done");
+    setLocalDone(id,true); save(id).then(()=>render()); toast("Marked sent and done");
   });
 }
 function copy(text,id){
@@ -656,11 +694,55 @@ function copy(text,id){
 
 /* ════════ views / filters ════════ */
 function setView(v){ VIEW=v; CURSOR=-1; render(); window.scrollTo({top:0,behavior:"smooth"}); }
-function toggleFilter(k){ FILT[k]=!FILT[k];
+
+/* A control that shows a count must land on a view containing exactly those
+   items. focusView SETS the filters outright rather than toggling them, so
+   clicking the same tile twice can never silently un-filter the board. */
+function focusView(o){
+  FILT.openOnly     = !!o.openOnly;
+  FILT.overdue      = !!o.overdue;
+  FILT.dueSoon      = !!o.dueSoon;
+  FILT.mine         = !!o.mine;
+  FILT.assignedAway = !!o.assignedAway;
+  FILT.lane         = o.lane || null;
+  if(o.view) VIEW=o.view;
+  CURSOR=-1; syncChips(); render(); window.scrollTo({top:0,behavior:"smooth"});
+}
+function syncChips(){
   document.getElementById("f-open").classList.toggle("on",FILT.openOnly);
   document.getElementById("f-mine").classList.toggle("on",FILT.mine);
   document.getElementById("f-due").classList.toggle("on",FILT.dueSoon);
-  render(); }
+}
+function clearFilters(){
+  FILT.openOnly=FILT.mine=FILT.dueSoon=FILT.overdue=FILT.assignedAway=false;
+  FILT.lane=null; FILT.src.clear(); syncChips(); render();
+}
+/* Because tiles now set filters, she must be able to SEE what is being hidden
+   and undo it in one click — a silent filter is how a board lies about itself. */
+function renderFilterBar(){
+  const on=[];
+  if(FILT.openOnly)     on.push(["Open only","openOnly"]);
+  if(FILT.lane)         on.push([LANE_LABEL[FILT.lane]||FILT.lane,"lane"]);
+  if(FILT.overdue)      on.push(["Overdue","overdue"]);
+  if(FILT.dueSoon)      on.push(["Due within 7 days","dueSoon"]);
+  if(FILT.assignedAway) on.push(["Waiting on others","assignedAway"]);
+  if(FILT.mine)         on.push(["Mine only","mine"]);
+  [...FILT.src].forEach(s=>on.push(["source: "+s,"src:"+s]));
+  const el=document.getElementById("filterbar");
+  el.style.display=on.length?"":"none";
+  if(!on.length){ el.innerHTML=""; return; }
+  el.innerHTML='<span style="font-size:12px;color:var(--muted);font-weight:600">Showing only</span>'
+    + on.map(([label,key])=>`<button class="chip on" data-cf="${esc(key)}">${esc(label)} ✕</button>`).join("")
+    + '<button class="chip ghost" onclick="clearFilters()">Clear all</button>';
+  el.querySelectorAll("[data-cf]").forEach(b=>b.onclick=()=>{
+    const k=b.getAttribute("data-cf");
+    if(k.startsWith("src:")) FILT.src.delete(k.slice(4));
+    else if(k==="lane") FILT.lane=null;
+    else FILT[k]=false;
+    syncChips(); render();
+  });
+}
+function toggleFilter(k){ FILT[k]=!FILT[k]; syncChips(); render(); }
 function toggleSrc(s){ FILT.src.has(s)?FILT.src.delete(s):FILT.src.add(s); render(); }
 function expandAll(on){ OPEN=on?new Set(ITEMS.map(i=>i.id)):new Set(); render(); }
 function jump(id){ OPEN.add(id); render();
@@ -680,7 +762,7 @@ function showBulk(){
 }
 function clearSel(){ SEL.clear(); render(); showBulk(); }
 function bulkDone(v){ const ids=[...SEL];
-  Promise.all(ids.map(id=>{cs(id).done=v;return save(id);})).then(()=>{clearSel();render();
+  Promise.all(ids.map(id=>{setLocalDone(id,v);return save(id);})).then(()=>{clearSel();render();
     toast(ids.length+(v?" marked done":" reopened"));}); }
 function bulkAssign(who){ if(!who)return; const ids=[...SEL];
   Promise.all(ids.map(id=>{cs(id).assignee=who==="hadassa"?null:who;return save(id);}))
@@ -776,7 +858,7 @@ document.addEventListener("keydown",e=>{
   if(["j","ArrowDown"].includes(e.key)){ e.preventDefault(); CURSOR=Math.min(CURSOR+1,vis.length-1); focusCursor(vis); }
   if(["k","ArrowUp"].includes(e.key)){ e.preventDefault(); CURSOR=Math.max(CURSOR-1,0); focusCursor(vis); }
   const cur=vis[CURSOR]; if(!cur) return;
-  if(e.key==="x"){ pushUndo(cur.id); cs(cur.id).done=!cs(cur.id).done; save(cur.id).then(()=>render()); toast("Toggled"); }
+  if(e.key==="x"){ pushUndo(cur.id); setLocalDone(cur.id,!isDone(cur.id)); save(cur.id).then(()=>render()); toast("Toggled"); }
   if(e.key==="d"){ pushUndo(cur.id); cs(cur.id).defer="no-time"; save(cur.id).then(()=>render()); toast("Deferred"); }
   if(e.key==="a"){ pushUndo(cur.id); cs(cur.id).assignee="rafael"; save(cur.id).then(()=>render()); toast("Assigned to Rafael"); }
   if(e.key==="e"||e.key==="Enter"){ OPEN.has(cur.id)?OPEN.delete(cur.id):OPEN.add(cur.id); render(); }

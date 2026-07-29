@@ -22,6 +22,9 @@ import pm_state as S  # noqa: E402
 def path(tmp_path, monkeypatch):
     p = tmp_path / "pm_state.json"
     monkeypatch.setattr(S, "LOCK_PATH", tmp_path / ".lock")
+    # Keep the roll's archive inside tmp_path — a test must never write into the
+    # real ~/rfs_pm/history/.
+    monkeypatch.setattr(S, "HISTORY_DIR", tmp_path / "history")
     st = S.blank_state(brief_date="2026-07-28")
     st["items"] = [
         S.new_item("a", "Open action", lane="action", kind="pay"),
@@ -295,3 +298,47 @@ def test_bare_stamp_without_evidence_fails_the_gate(path):
     fresh, reason = S.swept_today(st)
     assert fresh is False
     assert "no evidence" in reason
+
+
+# ── history: finished work must survive the roll ──
+# The roll used to keep only a COUNT of completed items, so pressing "Start new
+# day" destroyed the subject, her note and her `did` — the exact record the
+# daily report and the weekly per-project customer report are built from.
+
+def test_roll_archives_finished_items_instead_of_destroying_them(path, tmp_path):
+    S.set_note("b", "called Teresa, she confirmed", path=path)
+    res = S.roll_forward("2026-07-29", path=path)
+    assert res["archived"] == 1
+    hist = S.load_history("2026-07-28", root=tmp_path / "history")
+    assert [h["id"] for h in hist] == ["b"]
+    assert hist[0]["subject"] == "Done thing"
+    assert hist[0]["note"] == "called Teresa, she confirmed"
+
+
+def test_roll_archives_dismissed_items_with_their_reason(path, tmp_path):
+    S.apply_click("a", {"dismiss": True, "dismiss_reason": "Rafael handled it"}, path=path)
+    S.roll_forward("2026-07-29", path=path)
+    hist = {h["id"]: h for h in S.load_history("2026-07-28", root=tmp_path / "history")}
+    assert hist["a"]["status"] == "dismissed"
+    assert hist["a"]["dismiss_reason"] == "Rafael handled it"
+
+
+def test_archive_merges_by_id_and_never_truncates_a_day(path, tmp_path):
+    root = tmp_path / "history"
+    S.archive_finished("2026-07-28", [S.new_item("x", "first")], root=root)
+    S.archive_finished("2026-07-28", [S.new_item("y", "second")], root=root)
+    assert {h["id"] for h in S.load_history("2026-07-28", root=root)} == {"x", "y"}
+
+
+def test_history_between_spans_days_and_tags_each_record(path, tmp_path):
+    root = tmp_path / "history"
+    S.archive_finished("2026-07-27", [S.new_item("p", "mon", project="70 Robin")], root=root)
+    S.archive_finished("2026-07-28", [S.new_item("q", "tue", project="26 Lee")], root=root)
+    S.archive_finished("2026-08-05", [S.new_item("r", "later")], root=root)
+    got = S.history_between("2026-07-27", "2026-07-31", root=root)
+    assert {g["id"] for g in got} == {"p", "q"}
+    assert {g["day"] for g in got} == {"2026-07-27", "2026-07-28"}
+
+
+def test_load_history_is_empty_for_a_day_with_no_archive(tmp_path):
+    assert S.load_history("2026-01-01", root=tmp_path / "history") == []
