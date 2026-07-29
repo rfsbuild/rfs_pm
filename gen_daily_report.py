@@ -117,8 +117,12 @@ def financial(d, err):
     ]
     out = ['<div class="tiles">']
     for k, v, cl, sub in tiles:
-        out.append('<div class="tile %s"><div class="k">%s</div><div class="v">%s</div>'
-                   '<div class="sub">%s</div></div>' % (cl, e(k), v, e(sub)))
+        # ("tile " + cl).strip() — an empty severity slot was emitting
+        # class="tile " with a trailing space (an empty modifier), which reads
+        # as a missing class rather than a deliberate neutral tile.
+        out.append('<div class="%s"><div class="k">%s</div><div class="v">%s</div>'
+                   '<div class="sub">%s</div></div>'
+                   % (("tile " + cl).strip(), e(k), v, e(sub)))
     out.append("</div>")
 
     # One short plain sentence per idea. The forecast `notes` field is NOT
@@ -326,10 +330,16 @@ ul.acts{margin:0;padding:0 14px 12px 32px}
 ul.acts li{font-size:13.5px;color:var(--body);padding:3px 0;line-height:1.5}
 ul.acts li.drop{color:var(--faint)}
 .outlook p{font-size:14px;color:var(--body);margin:6px 0}
-.sysrow{background:var(--card);border:1px solid var(--rule);border-radius:11px;
-padding:11px 14px;margin-bottom:9px}
-.syswhat{font-size:14px;font-weight:650;color:var(--ink)}
 .syswhy{font-size:13px;color:var(--body);margin-top:3px}
+/* .syswhy was authored to sit inside .sysrow (which supplied padding:11px 14px),
+   but render_systems() emits it as a DIRECT CHILD of details.proj{padding:0}.
+   .sysrow/.syswhat are emitted nowhere, so nothing supplied the gutter and every
+   body paragraph rendered 1px from the card border — 14px LEFT of its own summary
+   heading. Invisible to node --check and to check_html_js.py; only visible in a
+   browser. Verified in Chromium 2026-07-29: computed padding was 0px on all 18
+   instances, textLeftInset 1px vs 15px for the summary. Fixed here at the source
+   so tomorrow's report does not reproduce it. */
+details.proj>.syswhy{padding:0 14px 12px;margin-top:0}
 @media (max-width:520px){.wrap{padding:0 14px}h1{font-size:21px}
 .tile .v{font-size:19px}ul.acts{padding-left:26px}}
 .note{font-size:12.5px;color:var(--body);background:#fffdf4;border-left:3px solid var(--warn);
