@@ -1,0 +1,122 @@
+{
+  "version": "1",
+  "updated": "2026-07-29",
+  "_why": "Every source a PM sweep must read, with its live id. Exists because a sweep at 08:40 on 2026-07-29 was believed complete and missed six task assignments — #99-concord had been created at 09:13 that morning and nothing prompted a look for unknown channels. Refresh by listing channels live and running --check-new against this file.",
+  "slack": {
+    "jobs": [
+      {
+        "id": "C0BKP54QEF9",
+        "name": "#98-wyman",
+        "note": "quote round; Ray + Gerson + Pet Flooring + Saba"
+      },
+      {
+        "id": "C0BLYQRETL0",
+        "name": "#70-robin",
+        "note": "Bob/Helios; client conversation ALSO lives on Basecamp"
+      },
+      {
+        "id": "C0BL86N39GU",
+        "name": "#104-child",
+        "note": "Teresa; CO 0015 standoff, Rafael owns it"
+      },
+      {
+        "id": "C0BL4FM784A",
+        "name": "#26-lee",
+        "note": "Gillian; deposit invoice 0002"
+      },
+      {
+        "id": "C0BL86WN3CL",
+        "name": "#43-haverford",
+        "note": "LLO electrical + 4 COs expiring"
+      },
+      {
+        "id": "C0BKY8F8FS7",
+        "name": "#299-ocean-deck",
+        "note": "Charles; suspected 0006/0007 double-bill"
+      },
+      {
+        "id": "C0BLK0EKK0E",
+        "name": "#99-concord",
+        "note": "CREATED 2026-07-29 09:13 — the channel the 08:40 sweep could not have known about. International Family Church, North Reading"
+      },
+      {
+        "id": "C0BLYRRUA1E",
+        "name": "#51-cedar",
+        "note": "Paula; cabinets + Llinkk kitchen template Fri Aug 7"
+      },
+      {
+        "id": "C0BL86PRFHS",
+        "name": "#14-guernsey",
+        "note": "Chris Heaton plumbing; Heaton-0003 CO $48,200.46 sat in Draft 33 days"
+      }
+    ],
+    "company": [
+      {
+        "id": "C0BK8J7BRJ9",
+        "name": "#all-rfsbuilders",
+        "note": "Rafael's broadcast asks land here"
+      },
+      {
+        "id": "C0BL01ACTNX",
+        "name": "#rba",
+        "note": "LSWP course for Gerson + Samuel; Andersen extra-labor approvals"
+      }
+    ],
+    "dms": [
+      {
+        "id": "C0BLL433EG5",
+        "name": "group DM — Hadassa + Rafael + Claude",
+        "note": "Added 2026-07-29 13:34. Hadassa told Rafael to send her DMs here. Replaces the 1:1 D0BL67Q10EL, which now only holds the move notice"
+      },
+      {
+        "id": "C0BLH50E4EP",
+        "name": "group DM — Hadassa + Guilherme + Claude",
+        "note": "Added 2026-07-29 13:33. Replaces the 1:1 D0BKDR5V1A5. Gui reports field work here — job completions and crew expenses that hit payroll"
+      }
+    ]
+  },
+  "email": [
+    {
+      "address": "hadassa@rfsbuilders.com",
+      "note": "the ONLY mailbox this connector can read"
+    },
+    {
+      "address": "office@rfsbuilders.com",
+      "note": "Alice's — NOT readable here. BT notification type 270 goes only here, which is why the Monday report was missed"
+    },
+    {
+      "address": "billing@rfsbuilders.com",
+      "note": "not readable here; invoices are routed to it"
+    },
+    {
+      "address": "rfscarpentryservices@gmail.com",
+      "note": "not readable here; South Shore's dunning notices go to it"
+    }
+  ],
+  "other": [
+    {
+      "name": "Basecamp",
+      "note": "🔴 70 Robin / Helios client thread lives HERE, not email. Arrives only as a daily digest to hadassa@. Checking Gmail alone manufactures false 'she owes them a reply' items"
+    },
+    {
+      "name": "BuilderTrend",
+      "note": "invoices, COs, receipts, sub certificates. Saved browser session is on HADASSA'S login (confirmed 2026-07-29)"
+    },
+    {
+      "name": "Subs sheet (Google Sheets)",
+      "note": "1zv9tgVegV3LmjfBSST9Eud0HNEWzjxlP — sub contacts, trades, GL/WC expiry, W-9. Answers compliance questions on many cards at once"
+    },
+    {
+      "name": "Google Calendar",
+      "note": "Hadassa's convention, stated 2026-07-29 12:58: an event shown YELLOW with 'TBC' means awaiting confirmation — the slot is held for follow-up, not agreed"
+    }
+  ],
+  "contract": [
+    "LIST channels live first and diff against this registry — a channel you do not know about is the miss that already happened once.",
+    "READ each source since the board's last_swept_at, never since 'this morning'.",
+    "DIFF findings against existing board item ids — refresh by id, never create a duplicate card.",
+    "READ TONE, not just imperatives: a worry, a passing decision, a one-off number, 'it's already done' (which CLOSES a card), an unanswered question, a verbal authorisation that will hit payroll later.",
+    "WRITE a briefing JSON and load it with pm_ingest.py — it rejects any chase card that ships no ready-to-send draft.",
+    "The sweep stamp comes from the briefing's `sweep` block; mark_swept refuses it without per-source evidence."
+  ]
+}
