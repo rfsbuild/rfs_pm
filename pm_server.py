@@ -39,6 +39,9 @@ _CONTENT_MAP = {
     "links": "links", "draft": "draft", "pills": "pills",
     "unconfirmed": "unconfirmed", "isNew": "is_new", "moved": "moved",
     "age": "age", "due": "due",
+    # The split (2026-07-29) — what Claude already did vs what only she can do.
+    # Must be here or the card renders without it and the whole point is lost.
+    "claudeDone": "claude_done", "hadassaTodo": "hadassa_todo",
 }
 
 

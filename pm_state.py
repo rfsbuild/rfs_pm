@@ -83,6 +83,23 @@ ITEM_FIELDS = (
     # is a record of her actions, not a status board, so a card with no `did`
     # has nothing to report even when it is done. Set 2026-07-28.
     "did",
+    # ── The split (2026-07-29) ──
+    # Added after Hadassa's instruction: "absolutely everything you can help me
+    # with, do beforehand, I will want you to. Final word will always be mine."
+    # Before this, a card could only express work assigned TO her — there was no
+    # field for work already done FOR her, so every card read as a fresh chore
+    # even when the research, the recipient list and the draft were finished.
+    #
+    #   claude_done  — list[str]: what is ALREADY DONE and sitting on the card,
+    #                  waiting for her. Past tense, concrete, no promises.
+    #   hadassa_todo — list[str]: what genuinely cannot be done for her —
+    #                  a judgement, an approval, a phone call, a signature.
+    #
+    # The discipline this enforces: writing a card now forces the question
+    # "what did I actually do about this?" A `hadassa_todo` with an empty
+    # `claude_done` on an actionable card is a smell, not a neutral state.
+    "claude_done",
+    "hadassa_todo",
 )
 
 # status values. `dismissed` = "this task isn't needed" — it is NOT the same as
@@ -222,6 +239,10 @@ def new_item(id, subject, **kw):
         # only because the reportable filter already proved it truthy). Declared
         # here so the key always exists and normalize() can heal older files.
         "did": None,
+        # The split — see ITEM_FIELDS. Lists, so the UI can render them as two
+        # checklists side by side rather than one undifferentiated blob.
+        "claude_done": [],
+        "hadassa_todo": [],
     }
     for k, v in kw.items():
         if k in ITEM_FIELDS:

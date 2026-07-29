@@ -136,6 +136,19 @@ a{color:var(--brand-deep);}
 .act{margin:0 14px 12px;background:var(--brand-soft);border-radius:8px;padding:9px 11px;font-size:13.5px;}
 .act .lbl{font-size:9.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--brand-deep);font-weight:750;margin-bottom:2px;}
 .act .txt[contenteditable="true"]:focus{outline:none;background:#fff;border-radius:4px;padding:2px 4px;}
+/* ── The split (2026-07-29): what Claude already did vs what only she can do. ──
+   Sits ABOVE the fold, outside the Details drawer, on purpose: the whole value
+   is seeing "the draft is already written" without opening anything. */
+.split{margin:0 14px 12px;display:grid;grid-template-columns:1fr 1fr;gap:9px;}
+@media(max-width:720px){.split{grid-template-columns:1fr;}}
+.split .col{border-radius:8px;padding:8px 11px;font-size:12.5px;}
+.split .col.cd{background:var(--ok-bg);}
+.split .col.ht{background:var(--brand-soft);}
+.split .lbl{font-size:9.5px;text-transform:uppercase;letter-spacing:.08em;
+  font-weight:750;margin-bottom:4px;display:flex;gap:5px;align-items:center;}
+.split .col.cd .lbl{color:var(--ok);} .split .col.ht .lbl{color:var(--brand-deep);}
+.split ul{margin:0;padding-left:16px;} .split li{margin:2px 0;color:var(--body);line-height:1.45;}
+.split .none{color:var(--faint);font-style:italic;}
 .notebox{margin:0 14px 12px;background:#fffdf4;border-left:3px solid var(--amber);
   border-radius:6px;padding:8px 11px;font-size:13px;color:var(--body);}
 .notebox .lbl{font-size:9.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--warn);font-weight:750;}
@@ -437,7 +450,9 @@ function visible(){
     if(FILT.src.size && !FILT.src.has(it.source)) return false;
     if(q){
       const hay=[it.subject,it.meta,it.action,it.project,it.source,s.note,
-                 (it.ctxBody||[]).join(" ")].join(" ").toLowerCase();
+                 (it.ctxBody||[]).join(" "),
+                 (it.claudeDone||[]).join(" "),(it.hadassaTodo||[]).join(" "),
+                 (it.draft||{}).to,(it.draft||{}).body].join(" ").toLowerCase();
       if(!hay.includes(q)) return false;
     }
     return true;
@@ -519,6 +534,8 @@ function card(it){
     </div>
     ${it.action?`<div class="act"><div class="lbl">Your action</div>
        <div class="txt" contenteditable="true" data-act="${it.id}">${esc(it.action)}</div></div>`:""}
+    ${splitBlock(it)}
+    ${it.draft?`<div style="margin:0 14px 12px">${draftBlock(it)}</div>`:""}
     ${drop?`<div class="dismissbox"><div class="lbl">Not needed — your reason</div>${esc(s.dismiss_reason||"")}</div>`:""}
     ${s.note?`<div class="notebox"><div class="lbl">Your note</div>${esc(s.note)}</div>`:""}
     <div class="crow">
@@ -547,8 +564,21 @@ function card(it){
       ${(it.links||[]).length?`<div class="links">${(it.links||[]).map(x=>
         `<a class="lk" href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.label)} ↗</a>`).join("")}</div>`:""}
       ${(it.where||[]).length?`<p style="margin-top:8px;font-size:12px;color:var(--muted)">📍 ${(it.where||[]).map(esc).join(" · ")}</p>`:""}
-      ${it.draft?draftBlock(it):""}
     </div>
+  </div>`;
+}
+/* The split. Renders nothing at all when a card has neither side, so cards that
+   are pure FYI don't grow an empty pair of boxes. When Claude did work but the
+   card is actionable, "Claude already did" comes FIRST — she should see that the
+   drafting is finished before she reads what is left for her. */
+function splitBlock(it){
+  const cd=(it.claudeDone||[]).filter(Boolean), ht=(it.hadassaTodo||[]).filter(Boolean);
+  if(!cd.length && !ht.length) return "";
+  const li=a=>a.length?`<ul>${a.map(x=>`<li>${x}</li>`).join("")}</ul>`
+                      :`<div class="none">nothing — see the action above</div>`;
+  return `<div class="split">
+    <div class="col cd"><div class="lbl">✅ Claude already did</div>${li(cd)}</div>
+    <div class="col ht"><div class="lbl">👤 Only you can do</div>${li(ht)}</div>
   </div>`;
 }
 function draftBlock(it){

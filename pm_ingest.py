@@ -42,6 +42,7 @@ because a typo'd field name is how "I loaded it" becomes "the card is blank".
 import argparse
 import json
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -63,7 +64,64 @@ import pm_state as S  # noqa: E402
 # act recorded in the briefing file, never a side effect of re-running it.
 SOURCE_OWNED = ("subject", "meta", "ctx_sum", "ctx_body", "action",
                 "where", "links", "draft", "pills", "unconfirmed", "moved",
-                "source", "kind", "due")
+                "source", "kind", "due", "claude_done", "hadassa_todo")
+
+# Words that make a card a CHASE: it asks her to get something out of a person.
+# Any card matching these must ship a `draft` — a ready-to-send message — per
+# [[feedback_sub_chase_include_ready_to_send_email]] (Hadassa, 2026-07-28).
+#
+# This list exists because that rule lived only in memory. On 2026-07-29 a
+# 34-card briefing with EIGHT chase cards and ZERO drafts validated clean, and
+# she had to point it out: "You didn't give me the template for chasing the
+# quotes due today for 98 for instance. the LLO follow up as well." A rule that
+# is not in the pipeline is a rule that gets skipped on a busy morning.
+CHASE_WORDS = (
+    "chase", "follow up", "follow-up", "followup", "remind", "confirm with",
+    "request", "contact", "reach out", "invite", "nudge", "outreach",
+    "quote", "quotes", "coi", "cois", "w-9", "w9", "certificate", "certificates",
+    "collect", "chasing",
+)
+# Phrases that only count as a chase when aimed at a person. "ask Rafael" is a
+# chase; "ask yourself" is not. Kept separate from CHASE_WORDS so the matcher
+# can require a following word.
+CHASE_VERBS = ("ask", "call", "email", "chase", "remind", "invite")
+
+_CHASE_RE = re.compile(
+    r"\b(?:" + "|".join(re.escape(w) for w in CHASE_WORDS) + r")\b|"
+    r"\b(?:" + "|".join(CHASE_VERBS) + r")\s+(?:the\s+|him|her|them|rafael|"
+    r"alice|bob|paula|ray|gerson|luis|teresa|charles|eliezer|[A-Z])",
+    re.IGNORECASE)
+
+
+def is_chase(item):
+    """True when a card's job is to get something out of a person.
+
+    Checks subject + action only — deliberately NOT ctx_body, which quotes
+    source material and would match on almost anything.
+
+    Word-BOUNDARY matched, not substring. The first version used plain `in`,
+    which made "coi" match "cost coding" and flagged a receipt-coding card as a
+    sub-chase. A rule that cries wolf gets switched off, so precision here is
+    the point.
+    """
+    hay = " ".join(str(item.get(k) or "") for k in ("subject", "action"))
+    return bool(_CHASE_RE.search(hay))
+
+
+def draft_is_sendable(d):
+    """A draft must be actually sendable, not a stub. Returns an error or None."""
+    if not isinstance(d, dict):
+        return "draft must be an object with to/subject/body"
+    for k in ("to", "body"):
+        if not str(d.get(k) or "").strip():
+            return "draft is missing `%s`" % k
+    body = str(d["body"])
+    # A placeholder is fine ONLY if the card says who fills it and why — an
+    # unexplained [FILL IN] is how a half-written draft looks finished.
+    if "[FILL IN]" in body and "once" not in body.lower():
+        return ("draft body has a bare [FILL IN] with no note on who supplies "
+                "it — say what is missing and from whom")
+    return None
 
 # Fields that are HERS. A briefing that tries to set one is rejected outright
 # rather than obeyed: a collector must never be able to mark her work done.
@@ -73,11 +131,21 @@ HER_FIELDS = ("status", "done_at", "did", "note", "assignee", "defer",
 
 # Control keys a briefing may carry that are not item fields. Anything else
 # starting with "_" is rejected, so a typo'd control key is loud, not ignored.
-CONTROL_KEYS = ("_note", "_relane")
+CONTROL_KEYS = ("_note", "_relane", "_no_draft")
 
 
-def validate(items):
-    """Return a list of error strings. Empty list = the briefing is loadable."""
+def validate(items, existing=None):
+    """Return a list of error strings. Empty list = the briefing is loadable.
+
+    `existing` is {id: item} for the cards already on the board. Pass it and the
+    quality rules are checked against the RESULTING card (patch merged over
+    what's there), not against the patch in isolation. That distinction matters:
+    a briefing that only refreshes `claude_done` on one card should not be forced
+    to resend its subject, draft and lane just to satisfy a rule about fields it
+    isn't touching. Without `existing`, every item is treated as new — which is
+    the strict reading, correct for a fresh briefing.
+    """
+    existing = existing or {}
     errs, seen = [], set()
     for i, it in enumerate(items):
         where = "item[%d]" % i
@@ -92,7 +160,9 @@ def validate(items):
         else:
             seen.add(iid)
             where = "item[%d] %s" % (i, iid)
-        if not it.get("subject"):
+        prior = existing.get(iid) or {}
+        # `subject` is required to CREATE a card, not to patch one.
+        if not it.get("subject") and not prior.get("subject"):
             errs.append("%s has no `subject`" % where)
         for k in it:
             if k in CONTROL_KEYS:
@@ -109,9 +179,40 @@ def validate(items):
             errs.append("%s lane %r not in %s" % (where, it["lane"], S.LANES))
         if it.get("kind") and not isinstance(it["kind"], str):
             errs.append("%s kind must be a string" % where)
-        for k in ("ctx_body", "where", "links", "pills"):
+        for k in ("ctx_body", "where", "links", "pills",
+                  "claude_done", "hadassa_todo"):
             if k in it and not isinstance(it[k], list):
                 errs.append("%s %s must be a list" % (where, k))
+        # ── quality rules, checked against the RESULTING card ──
+        eff = dict(prior)
+        eff.update({k: v for k, v in it.items() if not k.startswith("_")})
+        # A chase card without a ready-to-send draft is the whole drafting job
+        # left on her desk. Hard error, not a warning.
+        # `_no_draft` is the written escape hatch. Some chases genuinely have
+        # no email to write — the ask happens in a Slack message already sitting
+        # in her Drafts, or face to face at a meeting, or the missing fact has to
+        # come from her before anything can be addressed to anyone. Those are
+        # legitimate, but they must be STATED in the briefing rather than left as
+        # a silent absence, which is exactly how the 7/29 miss happened.
+        if (is_chase(eff) and eff.get("lane") not in ("noise",)
+                and not it.get("_no_draft")):
+            if not eff.get("draft"):
+                errs.append("%s looks like a CHASE (it asks her to get "
+                            "something from a person) but ships no `draft`. "
+                            "Add a ready-to-send message, or explain in "
+                            "claude_done why one is impossible." % where)
+            else:
+                bad = draft_is_sendable(eff["draft"])
+                if bad:
+                    errs.append("%s %s" % (where, bad))
+        # Every actionable card should say what was already done for her. An
+        # empty list is a fine answer — "nothing could be done ahead" is real —
+        # but it has to be stated, not left absent.
+        if eff.get("lane") in ("urgent", "action") and "claude_done" not in eff:
+            errs.append("%s is in the `%s` lane but has no `claude_done` — "
+                        "state what was done for her, or pass [] to say "
+                        "explicitly that nothing could be."
+                        % (where, eff.get("lane")))
         due = it.get("due")
         if due is not None and not (isinstance(due, str) and len(due) == 10):
             errs.append("%s due must be YYYY-MM-DD or null, got %r"
@@ -121,7 +222,8 @@ def validate(items):
 
 def ingest(items, path=S.STATE_PATH, now=None):
     """Upsert every item in ONE locked transaction. Returns a summary dict."""
-    errs = validate(items)
+    _st, _ = S.load_state(path)
+    errs = validate(items, {i["id"]: i for i in _st["items"]})
     if errs:
         raise ValueError("briefing is invalid, nothing was written:\n  - "
                          + "\n  - ".join(errs))
@@ -182,14 +284,14 @@ def main(argv=None):
     data = load_briefing(args.briefing)
     items = data["items"]
 
-    errs = validate(items)
+    state, _ = S.load_state(path)
+    errs = validate(items, {i["id"]: i for i in state["items"]})
     if errs:
         print("❌ briefing is INVALID — nothing written:")
         for e in errs:
             print("   -", e)
         return 2
 
-    state, _ = S.load_state(path)
     if data.get("brief_date") and data["brief_date"] != state.get("brief_date"):
         print("❌ brief_date mismatch: briefing says %s, board is on %s.\n"
               "   Roll the board first (pm_state.roll_forward) or fix the "
