@@ -235,7 +235,22 @@ a{color:var(--brand-deep);}
 .card:hover{border-color:#d9dcea;}
 .card.sel{border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-soft);}
 .card.cursor:before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--brand);}
-.card.done{opacity:.52;}
+/* A finished card fades — but NOT the question it is still asking her.
+   Hers, 2026-07-30: "I just clicked complete… and noticed that the entire card
+   faded, so I almost didn't see the 'what did you do' thing to save."
+
+   The fade CANNOT stay on .card itself: opacity creates a stacking context, so
+   a child can never be less transparent than its parent — `opacity:1` on the
+   prompt would do nothing. So the fade moves to the card's direct children and
+   the prompt is excluded, which is the only way to hold one element at full
+   strength inside a dimmed card.
+
+   `:not(.ubox.prompt)` matches on BOTH classes, so the ordinary work-log box
+   still fades with everything else; only the live question stays lit. */
+.card.done > *:not(.ubox.prompt){opacity:.52;}
+/* The card's own chrome dims too, so it still reads as finished at a glance —
+   just not by dimming the thing she has to act on. */
+.card.done{background:#fcfcfe;}
 .card.dismissed{opacity:.5;background:repeating-linear-gradient(135deg,#fff,#fff 9px,#fbfbfd 9px,#fbfbfd 18px);}
 .card.dismissed .subj{text-decoration:line-through;color:var(--muted);}
 .dismissbox{margin:0 14px 12px;background:#f6f7fb;border-left:3px solid var(--faint);
@@ -528,9 +543,15 @@ input[type=date].mini{color:var(--muted);}
 }
 .draft textarea:focus{outline:none;border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-soft);}
 .dacts{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;align-items:center;}
-.pbtn{background:var(--brand);color:#fff;border:1px solid var(--brand);border-radius:7px;
-  padding:5px 11px;font-size:12.5px;font-weight:650;}
-.pbtn:hover{background:var(--brand-deep);}
+/* Contrast fix 2026-07-30 (hers). White on --brand (#7b68ee) measured 4.15:1,
+   below the 4.5:1 normal text needs at 12.5px — and this is EVERY primary
+   button in the app ("Log it", "Copy email", "Save"). Moved to --brand-deep,
+   which is 6.42:1 and was already the hover colour, so the change stays inside
+   the existing palette rather than introducing a new purple. Hover steps down
+   again so the button still visibly responds. */
+.pbtn{background:var(--brand-deep);color:#fff;border:1px solid var(--brand-deep);
+  border-radius:7px;padding:5px 11px;font-size:12.5px;font-weight:650;}
+.pbtn:hover{background:#4c3ab8;border-color:#4c3ab8;}
 .ok-flash{color:var(--ok);font-size:12px;font-weight:650;display:none;}
 
 /* empty + misc */
