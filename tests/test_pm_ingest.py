@@ -114,7 +114,7 @@ def test_refresh_keeps_her_fields_and_updates_source_fields(path):
     res = I.ingest([{"id": "keep", "subject": "NEW subject from the collector",
                      "meta": "fresh meta", "action": "do the new thing"}],
                    path=path)
-    assert res == {"added": [], "updated": ["keep"]}
+    assert res == {"added": [], "updated": ["keep"], "trimmed": []}
     it = S.get_item(S.load_state(path)[0], "keep")
     assert it["subject"] == "NEW subject from the collector"
     assert it["meta"] == "fresh meta"

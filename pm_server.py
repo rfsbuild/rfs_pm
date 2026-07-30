@@ -47,6 +47,10 @@ _CONTENT_MAP = {
     # without these the comparator has nothing to compare and silently degrades
     # to string order, which puts "104 Child" above "14 Guernsey".
     "lastSeen": "last_seen", "firstSeen": "first_seen",
+    # The three-line context contract (2026-07-30). Collector output, so here
+    # and not in `clicks` — an ingest SHOULD refresh these when the facts move.
+    "ctxHappened": "ctx_happened", "ctxMatters": "ctx_matters",
+    "ctxNeeded": "ctx_needed", "ctxTrimmed": "ctx_trimmed",
     # The split (2026-07-29) — what Claude already did vs what only she can do.
     # Must be here or the card renders without it and the whole point is lost.
     "claudeDone": "claude_done", "hadassaTodo": "hadassa_todo",

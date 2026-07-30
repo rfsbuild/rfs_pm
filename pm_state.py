@@ -139,6 +139,30 @@ ITEM_FIELDS = (
     # list[{at, text, kind}] — kind is "update" (written mid-day) or "done"
     # (captured at the tick). Never edited, never deleted.
     "updates",
+    # ── the three-line context contract (2026-07-30) ──
+    # Measured on her live board before this shipped: 36 open cards carried a
+    # MEDIAN of 888 characters of context, 25 of them over 600, the worst 2,497.
+    # A card that takes a paragraph to read is a card she skips, so the context
+    # had drifted into a dump of everything the sweep found.
+    #
+    #   ctx_happened — the fact. What occurred.
+    #   ctx_matters  — the consequence. Why she should care.
+    #   ctx_needed   — the ask. What is required now.
+    #
+    # One sentence each, capped at CTX_LINE_CAP and enforced in pm_ingest.py,
+    # NOT in a style note — a rule that lives only in prose is a rule that gets
+    # skipped on a busy morning (the same lesson as CHASE_WORDS). Nothing is
+    # discarded: the raw text stays in ctx_body behind a `▸ source` disclosure.
+    #
+    # Existing cards are deliberately NOT backfilled (her decision): they keep
+    # rendering ctx_sum/ctx_body, and the board converges as cards refresh.
+    "ctx_happened",
+    "ctx_matters",
+    "ctx_needed",
+    # True when the ingest had to trim a line to the cap. Her choice over a
+    # silent cut: a trimmed line must be visibly trimmed, or she cannot tell an
+    # abbreviated sentence from a naturally short one.
+    "ctx_trimmed",
     # ── The split (2026-07-29) ──
     # Added after Hadassa's instruction: "absolutely everything you can help me
     # with, do beforehand, I will want you to. Final word will always be mine."
@@ -329,6 +353,12 @@ def new_item(id, subject, **kw):
         # This is the SAME omission the `did` comment above records, caught by
         # the ITEM_FIELDS-completeness test rather than in production.
         "updates": [],
+        # The three-line contract — see ITEM_FIELDS. None, not "", so the UI can
+        # tell "this card predates the contract" from "this line was left blank".
+        "ctx_happened": None,
+        "ctx_matters": None,
+        "ctx_needed": None,
+        "ctx_trimmed": False,
         # The split — see ITEM_FIELDS. Lists, so the UI can render them as two
         # checklists side by side rather than one undifferentiated blob.
         "claude_done": [],

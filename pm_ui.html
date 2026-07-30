@@ -464,6 +464,31 @@ input[type=date].mini{color:var(--muted);}
 .card.open .detail{display:block;}
 .detail h4{margin:0 0 5px;font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);}
 .detail p{margin:0 0 7px;font-size:13px;color:var(--body);line-height:1.55;}
+/* ── the three-line context contract (2026-07-30) ──
+   A label/value grid rather than paragraphs. The three labels ARE the contract,
+   and a fixed left column is what lets her scan a card in one pass instead of
+   reading it — which is the whole problem: 25 of her 36 open cards carried over
+   600 characters of prose here. */
+.ctx3{margin:0 0 9px;display:grid;grid-template-columns:auto 1fr;
+  gap:4px 11px;align-items:baseline;}
+.ctx3 .c3k{font-size:9.5px;text-transform:uppercase;letter-spacing:.08em;
+  font-weight:750;color:var(--brand-deep);white-space:nowrap;}
+.ctx3 .c3v{font-size:13px;color:var(--body);line-height:1.5;}
+.c3trim{grid-column:1/-1;font-size:11.5px;color:#8a5a06;margin-top:3px;}
+/* The raw text, one click away and shut by default — it is the evidence, not
+   the briefing. A card that opens with eight paragraphs is exactly what this
+   contract exists to stop, so `source` must never be open on first paint. */
+.srcbar{display:flex;align-items:center;gap:7px;border:none;background:none;
+  padding:3px 0;font-size:11.5px;font-weight:650;color:var(--muted);}
+.srcbar:hover{color:var(--ink);}
+/* A CSS border triangle, not a `▸` glyph — this file already documents that the
+   small-triangle codepoint reads as a stray dot in the macOS system font. The
+   existing .tw rule is scoped to `.sec.fold`, so it needs its own here. */
+.srcbar .tw{flex:none;width:0;height:0;border-left:6px solid var(--faint);
+  border-top:4.5px solid transparent;border-bottom:4.5px solid transparent;
+  transition:transform .15s ease;}
+.srcbar .tw.o{transform:rotate(90deg);border-left-color:var(--brand);}
+.srcbody{border-left:2px solid var(--rule);padding-left:11px;margin:4px 0 8px;}
 .detail textarea{width:100%;border:1px solid var(--rule);border-radius:8px;padding:8px 10px;
   font-size:13px;resize:vertical;outline:none;background:#fff;}
 .detail textarea:focus{border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-soft);}
@@ -995,7 +1020,12 @@ function visible(){
     if(FILT.lane && lane(it)!==FILT.lane) return false;
     if(FILT.src.size && !FILT.src.has(it.source)) return false;
     if(q){
+      /* ctxSum was missing here before the contract shipped — a pre-existing
+         gap. The three contract lines are added for the same reason: they are
+         where a new card's meaning now lives, so leaving them out would make
+         cards progressively harder to find as the board converges. */
       const hay=[it.subject,it.meta,it.action,it.project,it.source,s.note,
+                 it.ctxSum,it.ctxHappened,it.ctxMatters,it.ctxNeeded,
                  (it.ctxBody||[]).join(" "),
                  (it.claudeDone||[]).join(" "),(it.hadassaTodo||[]).join(" "),
                  (it.draft||{}).to,(it.draft||{}).body].join(" ").toLowerCase();
@@ -1142,6 +1172,11 @@ function histToUi(r){
   if(HIST_UI[r.id]) return HIST_UI[r.id];
   const it={id:r.id, source:r.source, project:r.project, lane:r.lane, kind:r.kind,
     subject:r.subject, meta:r.meta, ctxSum:r.ctx_sum, ctxBody:r.ctx_body,
+    /* The three-line contract must survive archiving — "did I do that, and what
+       was it about?" is asked of FINISHED cards, so dropping these here would
+       hollow out the record the Done tab exists to serve. */
+    ctxHappened:r.ctx_happened, ctxMatters:r.ctx_matters,
+    ctxNeeded:r.ctx_needed, ctxTrimmed:r.ctx_trimmed,
     action:r.action, where:r.where, links:r.links, draft:r.draft, pills:r.pills,
     unconfirmed:r.unconfirmed, isNew:false, moved:r.moved, age:r.age, due:r.due,
     claudeDone:r.claude_done, hadassaTodo:r.hadassa_todo,
@@ -1169,6 +1204,7 @@ function dRows(rows){
     const who=r.by==="claude"?"Claude":(r.by==="hadassa"||!r.by?"you":r.by);
     const key=encodeURIComponent(r.id), isOpen=DEXP.has(r.id);
     const hasCtx=!!(r.item && (r.item.ctxSum || (r.item.ctxBody||[]).length
+                   || r.item.ctxHappened || r.item.ctxMatters || r.item.ctxNeeded
                    || r.item.action || (r.item.links||[]).length));
     return `<div class="drow${isOpen?" xopen":""}" onclick="dExpand('${key}')"
               title="${isOpen?"Hide the full card":"Open the full card — context, your action, links, notes"}">`
@@ -1507,8 +1543,7 @@ function card(it){
       <button class="mini ${SEL.has(it.id)?"on":""}" data-sel="${it.id}">${SEL.has(it.id)?"✓ picked for bulk":"☐ pick for bulk"}</button>
     </div>
     <div class="detail">
-      ${it.ctxSum?`<h4>Context</h4><p>${esc(it.ctxSum)}</p>`:""}
-      ${(it.ctxBody||[]).map(p=>`<p>${p}</p>`).join("")}
+      ${ctxBlock(it)}
       <h4>Your note — what you found out, what you told them</h4>
       <textarea data-note="${it.id}" placeholder="Type here. It saves as you go.">${esc(s.note||"")}</textarea>
       ${(it.links||[]).length?`<div class="links">${(it.links||[]).map(x=>
@@ -1569,6 +1604,48 @@ function waitBlock(it){
    ASK_DID is not persisted anywhere on purpose. If she reloads mid-question
    the tick is already saved and the question is simply gone — a pending
    prompt is not something worth restoring, and restoring it would nag. */
+/* ── the three-line context contract (2026-07-30) ──
+   HAPPENED (the fact) · MATTERS (the consequence) · NEEDED (the ask).
+
+   Measured on her live board first: 36 open cards carried a MEDIAN of 888
+   characters of context, 25 of them over 600, the worst 2,497 — a card that
+   takes a paragraph to read is a card she skips.
+
+   Cards written BEFORE the contract keep their old rendering exactly (her
+   decision: "leave them, contract applies going forward"), so this is a
+   two-mode block rather than a migration. Both modes put the raw text behind
+   the same `▸ source` disclosure — nothing the sweep found is ever discarded,
+   it just stops being the first thing she reads. */
+const CTX_ROWS=[["ctxHappened","Happened"],["ctxMatters","Matters"],
+                ["ctxNeeded","Needed"]];
+let SRC_OPEN=new Set();
+function ctxBlock(it){
+  const raw=(it.ctxBody||[]);
+  const rows=CTX_ROWS.filter(([k])=>String(it[k]||"").trim());
+  /* Legacy card: render exactly what it rendered before the contract existed. */
+  if(!rows.length){
+    return (it.ctxSum?`<h4>Context</h4><p>${esc(it.ctxSum)}</p>`:"")
+         + raw.map(p=>`<p>${p}</p>`).join("");
+  }
+  const open=SRC_OPEN.has(it.id);
+  const src=raw.length?`<button class="srcbar" data-src="${it.id}">
+      <span class="tw ${open?"o":""}"></span>
+      <span>source — ${raw.length} paragraph${raw.length===1?"":"s"}, verbatim</span>
+    </button>${open?`<div class="srcbody">${raw.map(p=>`<p>${p}</p>`).join("")}</div>`:""}`:"";
+  return `<div class="ctx3">
+    ${/* The label and value are emitted as DIRECT grid children — no row
+          wrapper. A wrapping <div> is a SINGLE grid item, so it lands in one
+          column and the three lines flow "Happened | Matters / Needed |"
+          across two columns instead of stacking. Caught in a screenshot; the
+          DOM assertions passed because all three rows existed and read
+          correctly. */""}
+    ${rows.map(([k,label])=>
+      `<span class="c3k">${label}</span><span class="c3v">${esc(it[k])}</span>`
+    ).join("")}
+    ${it.ctxTrimmed?`<div class="c3trim">One of these lines was longer than the
+      ${160}-character limit and was shortened — the full text is under source.</div>`:""}
+  </div>${src}`;
+}
 function updBlock(it){
   const s=cs(it.id), log=(s.updates||[]).filter(Boolean);
   const asking=ASK_DID.has(it.id);
@@ -1860,6 +1937,11 @@ function wire(){
      never the completion — which is what makes it safe to offer at all. */
   document.querySelectorAll("[data-uskip]").forEach(el=>el.onclick=()=>{
     ASK_DID.delete(el.getAttribute("data-uskip")); render(); });
+  /* `▸ source` — per card, so opening the evidence on one does not unfold it
+     on every other card in the view. */
+  document.querySelectorAll("[data-src]").forEach(el=>el.onclick=()=>{
+    const id=el.getAttribute("data-src");
+    SRC_OPEN.has(id)?SRC_OPEN.delete(id):SRC_OPEN.add(id); render(); });
   /* Put the cursor in the question so it can be answered by typing rather than
      by aiming. Guarded: if she is already typing somewhere, a re-render must
      not yank the caret out from under her. */

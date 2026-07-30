@@ -64,7 +64,51 @@ import pm_state as S  # noqa: E402
 # act recorded in the briefing file, never a side effect of re-running it.
 SOURCE_OWNED = ("subject", "meta", "ctx_sum", "ctx_body", "action",
                 "where", "links", "draft", "pills", "unconfirmed", "moved",
-                "source", "kind", "due", "claude_done", "hadassa_todo")
+                "source", "kind", "due", "claude_done", "hadassa_todo",
+                "ctx_happened", "ctx_matters", "ctx_needed", "ctx_trimmed")
+
+# ── the three-line context contract (2026-07-30) ───────────────────────────
+# HAPPENED (the fact) · MATTERS (the consequence) · NEEDED (the ask), one
+# sentence each. The cap lives HERE, in the pipeline, and not in a note telling
+# whoever writes the next briefing to be concise — that is the CHASE_WORDS
+# lesson: a rule that is not in the pipeline is a rule that gets skipped on a
+# busy morning, and context length is exactly the thing that drifts when the
+# sweep is long and the writer is tired.
+#
+# 160 is measured, not chosen by feel. Across her 36 open cards the first
+# sentence of ctx_sum runs a median of 79 characters and a p90 of 120, so 160
+# leaves her natural writing completely untouched and bites only on the lines
+# that are turning back into paragraphs.
+CTX_LINE_CAP = 160
+CTX_LINES = ("ctx_happened", "ctx_matters", "ctx_needed")
+
+
+def _cap_ctx_lines(it):
+    """Truncate over-long context lines and FLAG the card. Mutates in place.
+
+    Her choice over rejecting the line or trimming it silently: a rejected line
+    leaves a card with a blank HAPPENED, and a silent trim is indistinguishable
+    from a naturally short sentence. Trimmed-and-marked is the only option where
+    the board stays readable AND the trimming is visible.
+
+    Nothing is lost — ctx_body still holds the raw text behind `▸ source`.
+    """
+    trimmed = False
+    for k in CTX_LINES:
+        v = it.get(k)
+        if not isinstance(v, str):
+            continue
+        v = v.strip()
+        if len(v) > CTX_LINE_CAP:
+            # Cut on a word boundary so the marker reads as an abbreviation
+            # rather than a corrupted string.
+            cut = v[:CTX_LINE_CAP].rsplit(" ", 1)[0].rstrip(" ,;:—-")
+            v = (cut or v[:CTX_LINE_CAP]) + "…"
+            trimmed = True
+        it[k] = v or None
+    if trimmed:
+        it["ctx_trimmed"] = True
+    return trimmed
 
 # Words that make a card a CHASE: it asks her to get something out of a person.
 # Any card matching these must ship a `draft` — a ready-to-send message — per
@@ -249,7 +293,15 @@ def ingest(items, path=S.STATE_PATH, now=None):
         raise ValueError("briefing is invalid, nothing was written:\n  - "
                          + "\n  - ".join(errs))
 
-    added, updated = [], []
+    added, updated, trimmed = [], [], []
+
+    # The cap is applied to the INCOMING spec, before anything is written, so a
+    # card can never land over-length and be tidied later. Applied here rather
+    # than inside validate() because validate() must stay side-effect free —
+    # it runs to decide whether to write at all.
+    for spec in items:
+        if _cap_ctx_lines(spec):
+            trimmed.append(spec["id"])
 
     def _fn(state):
         for spec in items:
@@ -276,7 +328,7 @@ def ingest(items, path=S.STATE_PATH, now=None):
                     existing["lane"] = spec["lane"]
                 existing["last_seen"] = S._now_iso(now)
                 updated.append(spec["id"])
-        return {"added": added, "updated": updated}
+        return {"added": added, "updated": updated, "trimmed": trimmed}
 
     return S._mutate(_fn, path, now)[1]
 
@@ -338,6 +390,13 @@ def main(argv=None):
     res = ingest(items, path=path)
     print("✅ ingested %d items: %d added, %d refreshed"
           % (len(items), len(res["added"]), len(res["updated"])))
+    # Trims are reported, never silent. The point of the cap is to make
+    # over-long context VISIBLE so whoever wrote the briefing tightens it next
+    # time; a cap that quietly truncates just hides the drift it exists to stop.
+    if res.get("trimmed"):
+        print("✂️  %d card(s) had a context line over the %d-char cap and were "
+              "shortened — tighten these at the source: %s"
+              % (len(res["trimmed"]), CTX_LINE_CAP, ", ".join(res["trimmed"])))
 
     if data.get("sweep"):
         try:
