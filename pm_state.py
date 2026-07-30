@@ -86,10 +86,26 @@ DEFER_REASONS = {
 #   waiting = {
 #     "who":      str,   # required — a name. "waiting" with no owner is a wish.
 #     "what":     str,   # optional — what specifically is owed to us
+#     "kind":     str,   # optional — "response" | "task" | None. See below.
 #     "since":    iso,   # when it entered the waiting space
 #     "nudge_on": date,  # optional — when to chase again; past = it surfaces red
 #     "log":      [ {"at": iso, "text": str} ],   # APPEND-ONLY chase history
 #   }
+#
+# `kind` — her distinction, 2026-07-30, in her words: a person-lane card is
+# "either 'pending response' or 'pending task done by the person' — do you get
+# the difference?". Both mean she cannot move it, so both belong in this space;
+# but they are not chased the same way, and that is the whole reason to record
+# which one it is:
+#   "response" → they owe an ANSWER. Chase reads "did you see this?" and ships
+#                a ready-to-send draft (her standing chase-card rule). Shorter
+#                fuse, because an unanswered question rots faster than work in
+#                progress.
+#   "task"     → they owe the WORK. Chase reads "is it done yet?". Longer fuse.
+#   None       → she skipped the question. Deliberately NOT defaulted to either:
+#                an absent answer must stay absent rather than be guessed, the
+#                same rule the sweep applies to a missing marker. The card still
+#                works — generic wording, default fuse.
 #
 # Design constraints that are load-bearing:
 #   · It stays `status == "open"` — the item is not done and must never read as
@@ -105,6 +121,23 @@ DEFER_REASONS = {
 #     she chased MGP three times; a mutable log cannot prove anything.
 WAITING_REQUIRED = ("who",)
 DEFAULT_NUDGE_DAYS = 3
+
+# kind → how many days until the next chase. A dict and not two constants
+# because the UI reads it to label the buttons, so the fuse and the wording can
+# never disagree about what "a reply" means.
+WAITING_KINDS = {"response": 2, "task": 3}
+WAITING_KIND_LABELS = {"response": "a reply", "task": "the work"}
+
+
+def clean_kind(kind):
+    """A valid kind, or None. Every entry point routes through this.
+
+    The isinstance check is not defensive padding: `kind` arrives straight off a
+    JSON body, and `x in WAITING_KINDS` raises TypeError on an unhashable value,
+    so a POST carrying `"kind": []` would 500 the server rather than be refused.
+    Caught by a parametrised test, not by reading the code.
+    """
+    return kind if isinstance(kind, str) and kind in WAITING_KINDS else None
 
 ASSIGNEES = ("hadassa", "rafael", "guilherme", "claude", "alice")
 
@@ -467,6 +500,9 @@ def _normalize_waiting(it):
     w.setdefault("what", "")
     w.setdefault("since", _now_iso())
     w.setdefault("nudge_on", None)
+    # An unrecognised kind becomes None, not a crash and not a silent pass —
+    # every card predating this field lands here and must render generically.
+    w["kind"] = clean_kind(w.get("kind"))
     log = w.get("log")
     if not isinstance(log, list):
         log = []
@@ -808,7 +844,7 @@ def default_nudge(now=None, days=DEFAULT_NUDGE_DAYS):
 
 
 def set_waiting(item_id, who, what="", nudge_on=None, first_update=None,
-                path=STATE_PATH, now=None):
+                kind=None, path=STATE_PATH, now=None):
     """Move an item into the waiting space.
 
     `who` is REQUIRED and rejected when blank. The entire failure mode of the
@@ -820,11 +856,16 @@ def set_waiting(item_id, who, what="", nudge_on=None, first_update=None,
     today" is about her, "waiting on Marconio" is about him), and leaving both
     set would let the 3-day defer escalation drag the card back to Urgent for
     something she still cannot do.
+
+    `kind` is optional ("response" | "task") and sets the default fuse when
+    `nudge_on` is not given — see WAITING_KINDS. An explicit `nudge_on` always
+    wins: she can say "chase Friday" regardless of what kind of thing it is.
     """
     who = (who or "").strip()
     if not who:
         return {"error": "name who you are waiting on — a waiting item with no "
                          "owner can never be chased"}
+    kind = clean_kind(kind)
 
     def _fn(state):
         it = get_item(state, item_id)
@@ -838,8 +879,10 @@ def set_waiting(item_id, who, what="", nudge_on=None, first_update=None,
         it["waiting"] = {
             "who": who,
             "what": (what or "").strip(),
+            "kind": kind,
             "since": existing.get("since") or _now_iso(now),
-            "nudge_on": nudge_on or default_nudge(now),
+            "nudge_on": nudge_on or default_nudge(
+                now, WAITING_KINDS.get(kind, DEFAULT_NUDGE_DAYS)),
             "log": log,
             "_needs_who": False,
         }
@@ -896,6 +939,46 @@ def set_waiting_who(item_id, who, path=STATE_PATH, now=None):
         it["waiting"]["who"] = who
         it["waiting"]["_needs_who"] = False
         return {"ok": True, "id": item_id, "who": who}
+    return _mutate(_fn, path, now)[1]
+
+
+def set_waiting_kind(item_id, kind, renudge=True, path=STATE_PATH, now=None):
+    """Label WHAT is owed — a reply, or the work itself. Her distinction.
+
+    Separate from set_waiting() on purpose: the card moves into the waiting space
+    the instant she picks a person (nothing is gated on her answering), and this
+    is the skippable follow-up question. A transition that waits for an optional
+    answer is a transition she can abandon halfway.
+
+    `renudge` re-arms the chase date to that kind's fuse, which is the entire
+    point of asking — a question owed to her rots faster than work in progress.
+    Passed False when she is re-labelling an old card whose date she has already
+    chosen; silently moving a date she set herself would be the worse surprise.
+
+    The answer is also APPENDED to the chase log, because "what am I even
+    waiting for" is exactly the question the log exists to answer later.
+    """
+    if clean_kind(kind) is None:
+        return {"error": "kind must be one of: %s" % ", ".join(sorted(WAITING_KINDS))}
+    kind = clean_kind(kind)
+
+    def _fn(state):
+        it = get_item(state, item_id)
+        if it is None:
+            return None
+        w = it.get("waiting")
+        if not w:
+            return {"error": "this item is not in the waiting space"}
+        w["kind"] = kind
+        if renudge:
+            w["nudge_on"] = default_nudge(now, WAITING_KINDS[kind])
+        w.setdefault("log", []).append({
+            "at": _now_iso(now),
+            "text": "Waiting for %s — chase on %s" % (WAITING_KIND_LABELS[kind],
+                                                      w["nudge_on"] or "no date set"),
+        })
+        return {"ok": True, "id": item_id, "kind": kind,
+                "nudge_on": w.get("nudge_on")}
     return _mutate(_fn, path, now)[1]
 
 

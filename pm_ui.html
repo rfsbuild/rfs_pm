@@ -289,6 +289,31 @@ a{color:var(--brand-deep);}
   background:var(--brand-soft);color:var(--brand-deep);white-space:nowrap;}
 .wbox .wnudge.late{background:var(--bad);color:#fff;}
 .wbox .wwhat{font-size:13px;color:var(--body);margin-top:3px;}
+/* "waiting for what?" — a reply, or the work. Reuses .ulbl/.uhint/.uskip from
+   the tick prompt below rather than minting a parallel set of question styles,
+   so the two prompts in this app read as the same kind of thing. */
+.wbox .wkind{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:5px;}
+.wbox .wkind.prompt{display:block;margin:7px -12px -10px;padding:9px 12px 10px;
+  background:var(--brand-soft);border-top:1px solid var(--rule);
+  border-radius:0 0 6px 6px;}
+.wbox .wkind.prompt .ulbl{font-size:9.5px;text-transform:uppercase;
+  letter-spacing:.08em;font-weight:800;color:var(--brand-deep);}
+.wbox .wkind.prompt .uhint{font-size:11.5px;color:var(--body);margin-top:1px;
+  line-height:1.4;}
+/* `.uskip` defaults to --muted, which measures 4.1:1 on this box's tinted
+   background. The tick prompt already corrects that — but its rule is scoped
+   `.ubox.prompt .uskip`, so reusing the CLASS here inherited the look and not
+   the fix. Measured in-browser at 4.1, not guessed. */
+.wbox .wkind.prompt .uskip{color:var(--body);}
+.wbox .kbtns{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px;}
+.wbox .kbtns .pbtn{display:inline-flex;align-items:baseline;gap:6px;}
+.wbox .kdays{font-size:10px;font-weight:600;opacity:.85;}
+.wbox .kchip{font-size:11px;font-weight:700;padding:1px 8px;border-radius:20px;
+  background:var(--brand-soft);color:var(--brand-deep);white-space:nowrap;}
+.wbox .kchip.none{background:transparent;color:var(--muted);font-weight:600;
+  border:1px dashed var(--rule);}
+.wbox .kalt{font-size:11.5px;color:var(--muted);display:inline-flex;
+  align-items:center;gap:6px;flex-wrap:wrap;}
 /* The log. A left rule and one line per entry — it must read as a timeline at a
    glance, because "how many times have I chased this" is the question it answers. */
 .wlog{margin:9px 0 0;padding:0 0 0 11px;border-left:2px solid var(--rule);list-style:none;}
@@ -458,7 +483,13 @@ input[type=date].mini{color:var(--muted);}
    "▸ Details" toggle into it: two nested disclosure levels on the same card is one
    click too many, and #8 shrinks the context to three lines anyway. */
 .card:not(.open) .act,
-.card:not(.open) .wbox,
+/* `.wbox:not(.asking)` for exactly the reason the work-log exception below
+   exists: a card parked with a person is asked "waiting for what?" the instant
+   she picks the name, and on a collapsed board that question would render inside
+   a hidden box — armed, invisible, unanswerable. Same defect that made the
+   tick-time prompt inert on the Today tab. The class is set in waitBlock() so
+   this needs no :has(). */
+.card:not(.open) .wbox:not(.asking),
 .card:not(.open) .foldbar,
 .card:not(.open) .foldwrap,
 .card:not(.open) .dismissbox,
@@ -742,6 +773,14 @@ let ASK_DID=new Set();
    precisely where she actually works. A card stays put until she answers or
    skips; both clear ASK_DID and it disappears normally on the next render. */
 const askedStill=id=>ASK_DID.has(id);
+/* Cards just parked with a person and being asked "waiting for what?" — a reply,
+   or the work (2026-07-30, her distinction). Client-side and NOT persisted, for
+   the same reason as ASK_DID plus one more: skipping must write NOTHING, so a
+   skipped answer has to stay absent rather than be stored as a "skipped" value.
+   Driving the prompt off `kind == null` instead would re-nag on every reload for
+   every card she deliberately left unlabelled. The card is already in the
+   waiting space before this renders — nothing is gated on her answering. */
+let ASK_KIND=new Set();
 /* Collapsed by DEFAULT (2026-07-29, her ask: "can we default toggle
    claude-doing / hadassa-doing and emails too?"). Once every card carried a
    split plus a 340px-tall email, 35 cards became an unscrollable wall.
@@ -756,6 +795,33 @@ const FILT={openOnly:false, mine:false, dueSoon:false, overdue:false,
             assignedAway:false, waitingDue:false, lane:null, src:new Set(), q:""};
 const LANE_LABEL={urgent:"🔴 Urgent",action:"🟠 Action Today",week:"🟡 This Week",
   rafael:"Pending Rafael",guilherme:"Pending Gui",claude:"🤖 Claude",noise:"Noise / FYI"};
+/* ── LANE_LABEL keeps EVERY key; only the DROPDOWN shrinks (2026-07-30, hers) ──
+   She picked "Pending Guilherme" on a card and it vanished from every view she
+   looked in. Root cause: `lane` and `assignee` were two independent fields that
+   read as one thing. The board grouped by lane, "By person" grouped by assignee,
+   and a lane-only pick left assignee null — so the card filed under her OWN
+   column while sitting in Guilherme's lane.
+
+   Her fix, approved: picking a person means "this is blocked on that person",
+   which is the WAITING SPACE — the only place in this app with a clock on it
+   (`nudge_on` + waiting_needing_nudge()). A card parked in "Pending Gui" on the
+   board had no nudge at all, which is exactly why it felt lost: it went
+   somewhere nothing would ever bring it back.
+
+   So the two person entries leave the lane dropdown and become a one-click door
+   into waiting. LANE_LABEL itself is UNTOUCHED because it is also the grouping
+   label map, and `effective_lane()` still legitimately returns "rafael" /
+   "guilherme" for an ASSIGNED card — dropping the keys here would leave those
+   groups with no heading, and dropping them from pm_state.LANES would make
+   normalize() silently reset every existing person-lane card to "action". */
+const LANE_PICK=["urgent","action","week","claude","noise"];
+/* Who a card can be parked with. Claude is deliberately absent: "🤖 With Claude"
+   is a queue she checks, not a human she chases, and it has its own tab. */
+const WAIT_PICK=["rafael","guilherme","alice"];
+const WAIT_PICK_LABEL={rafael:"Rafael",guilherme:"Guilherme",alice:"Alice"};
+/* kind → fuse, mirroring pm_state.WAITING_KINDS so the button label and the
+   chase date can never disagree about what "a reply" means. */
+const WAIT_KIND={response:{label:"a reply",days:2},task:{label:"the work",days:3}};
 /* "waiting" is deliberately NOT here any more — it is its own space, entered
    through openWaiting(), and the server refuses it as a defer reason. Leaving it
    in both places would be two sources of truth for one state, which is exactly
@@ -845,7 +911,7 @@ function setLocalDone(id,v){ const s=cs(id); s.done=!!v; s.status=v?"done":"open
    tick sends it to the bottom of its lane and the question travels with it,
    away from where she just clicked — she would have to hunt for a prompt she
    did not ask to move. It sinks normally the moment she answers or skips. */
-const rank=it=>askedStill(it.id)?0:
+const rank=it=>(askedStill(it.id)||ASK_KIND.has(it.id))?0:
   (isDrop(it.id)?3:(isDone(it.id)?2:(cs(it.id).defer?1:0)));
 const KR={compliance:0,pay:1,overdue:1,action:2};
 
@@ -902,6 +968,22 @@ function waitingUpdate(id,text,nudge){
     .then(r=>r.json()).then(j=>{
       if(j.error){ setSave("error",j.error); throw new Error(j.error); }
       /* Re-read the item so the rendered log is the stored log, to the second. */
+      return fetch("/api/state").then(r=>r.json()).then(d=>{
+        const fresh=(d.state||{})[id]; if(fresh) cs(id).waiting=fresh.waiting;
+        setSave("saved"); return j; }); });
+}
+/* Label what is owed — a reply, or the work. Round-trips for the same reason
+   waitingUpdate() does: the server sets the new chase date AND appends a log
+   line, so the local copy must be replaced by what was actually stored rather
+   than a guess at it. `renudge:false` when she is re-labelling an older card —
+   silently moving a chase date she chose herself is the worse surprise. */
+function setWaitingKind(id,kind,renudge){
+  setSave("saving");
+  return fetch("/api/item/"+encodeURIComponent(id)+"/waiting/kind",{method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({kind:kind,renudge:renudge!==false})})
+    .then(r=>r.json()).then(j=>{
+      if(j.error){ setSave("error",j.error); throw new Error(j.error); }
       return fetch("/api/state").then(r=>r.json()).then(d=>{
         const fresh=(d.state||{})[id]; if(fresh) cs(id).waiting=fresh.waiting;
         setSave("saved"); return j; }); });
@@ -1069,8 +1151,14 @@ function visible(){
     /* The "To chase now" tile lands here, so the tab renders exactly the count
        that tile claimed — not the whole waiting list with the urgent ones on top. */
     if(FILT.waitingDue && !(nudgeDue(it.id)||needsWho(it.id))) return false;
+    /* `&& !ASK_KIND.has()` — the S5 lesson, applied before it could bite again.
+       Parking a card moves it into the waiting space INSTANTLY, so on Today (or
+       Board) it would leave the DOM in the same frame the question was armed
+       against it: the prompt would exist for an element that is gone, exactly
+       how the tick-time prompt failed on the tab she actually works in. It holds
+       its place until she answers or skips, then leaves normally. */
     if(VIEW!=="waiting" && VIEW!=="done" && VIEW!=="dropped"
-       && VIEW!=="people" && isWaiting(it.id)) return false;
+       && VIEW!=="people" && isWaiting(it.id) && !ASK_KIND.has(it.id)) return false;
     if(FILT.mine && s.assignee) return false;
     if(FILT.assignedAway && !(s.assignee && s.assignee!=="hadassa")) return false;
     if(FILT.overdue && !isOverdue(it)) return false;
@@ -1477,9 +1565,28 @@ function render(){
        Guilherme, Claude — which is exactly ASG, so there is no second list to
        drift. Empty columns RENDER: "Guilherme has nothing" is the answer to
        "who is free?", and a view that hides idle people cannot answer it. */
+    /* ── whose column is it? (2026-07-30, after she lost a card) ──
+       Grouping on `assignee` ALONE is what made "Pending Guilherme" file under
+       her own Me column: the lane said Guilherme, the assignee was null, and
+       null defaulted to her. The lane dropdown no longer creates that state, but
+       it is not the only door — `defer:"needs-rafael"` also makes
+       effective_lane() return "rafael" with no assignee, and so does any card an
+       ingest writes with a person lane. So this now falls back to the LANE, and
+       a waiting card falls back to who she is waiting on.
+       Fixed on the READ side deliberately: it closes every door at once, including
+       ones added later, instead of patching each control that can open one. */
+    const whose=i=>{
+      const a=cs(i.id).assignee; if(a) return a;
+      const w=wOf(i.id); if(w&&w.who){
+        const m=String(w.who).trim().toLowerCase();
+        const hit=ASG.find(x=>x===m||m.indexOf(x)===0); if(hit) return hit;
+      }
+      const l=lane(i); if(ASG.indexOf(l)>=0 && l!=="hadassa") return l;
+      return "hadassa";
+    };
     ASG.forEach(k=>groupFold(b,
       k==="hadassa"?"Me":k[0].toUpperCase()+k.slice(1),
-      sortItems(vis.filter(i=>(cs(i.id).assignee||"hadassa")===k)),
+      sortItems(vis.filter(i=>whose(i)===k)),
       {keepEmpty:true, emptyLabel:"nothing assigned"}));
   } else if(VIEW==="done"){
     renderDone(b);
@@ -1590,8 +1697,22 @@ function card(it){
         ${Object.entries(DEFERS).map(([k,v])=>`<option value="${k}" ${s.defer===k?"selected":""}>${v}</option>`).join("")}
       </select>
       <input type="date" class="mini" data-due="${it.id}" value="${it.due||""}">
+      ${/* Two optgroups, one control. The lanes set `lane`; the people move the
+            card into the waiting space instead (value prefixed "wait:") — see
+            LANE_PICK above. A legacy card whose lane is STILL a person keeps an
+            honest selected option in a third group rather than silently
+            displaying "Action Today" for a state it is not in. */""}
       <select class="mini" data-lane="${it.id}">
-        ${Object.entries(LANE_LABEL).map(([k,v])=>`<option value="${k}" ${(it.lane===k)?"selected":""}>${v}</option>`).join("")}
+        <optgroup label="Lane — my work">
+        ${LANE_PICK.map(k=>`<option value="${k}" ${(it.lane===k)?"selected":""}>${LANE_LABEL[k]}</option>`).join("")}
+        </optgroup>
+        ${(!drop&&!done&&!wait)?`<optgroup label="Blocked on someone → Waiting on">
+        ${WAIT_PICK.map(k=>`<option value="wait:${k}">Waiting on ${WAIT_PICK_LABEL[k]}…</option>`).join("")}
+        </optgroup>`:""}
+        ${(LANE_PICK.indexOf(it.lane)<0 && LANE_LABEL[it.lane])
+          ? `<optgroup label="Currently (older card)">
+             <option value="${it.lane}" selected>${LANE_LABEL[it.lane]} — no chase date</option>
+             </optgroup>` : ""}
       </select>
       ${(!drop&&!done&&!wait)
         ? `<button class="mini" data-wenter="${it.id}">👤 Waiting on…</button>` : ""}
@@ -1616,6 +1737,47 @@ function card(it){
    behind an expand would put a click in front of the one action the tab is for.
    Rendered on Done/Not-needed cards too (read-only there) so a finished item
    keeps the history of how it was unblocked. */
+/* ── "waiting for WHAT?" — a reply, or the work (2026-07-30, her distinction) ──
+   Her words: a person-lane card is "either 'pending response' or 'pending task
+   done by the person' — do you get the difference?". Both mean she cannot move
+   it, so both live here; but they are not chased the same way, which is the only
+   reason to record which one it is. A reply gets a 2-day fuse and a "did you see
+   this?" chase; the work gets 3 days and "is it done yet?".
+
+   Three states, and the third is the one that matters most:
+     · answered  → a chip, and the chase wording follows it
+     · being asked (ASK_KIND) → two buttons and a skip, rendered as a QUESTION
+     · skipped/never asked → a quiet inline pair, NOT a nag. She said skip must
+       leave it unlabelled, so nothing is written and nothing re-prompts; but the
+       card must still be labellable later without re-parking it. */
+function kindBlock(it,w,live){
+  if(!live) return w.kind
+    ? `<div class="wkind"><span class="kchip">waiting for ${esc(WAIT_KIND[w.kind].label)}</span></div>` : "";
+  if(ASK_KIND.has(it.id)){
+    return `<div class="wkind prompt">
+      <div class="ulbl">👤 Parked with ${esc(w.who)} — waiting for what?</div>
+      <div class="uhint">It sets how soon this comes back at you, and how the chase
+        reads. Skip and it stays unlabelled — nothing is guessed.</div>
+      <div class="kbtns">
+        ${Object.entries(WAIT_KIND).map(([k,v])=>
+          `<button class="pbtn sm" data-wkind="${it.id}" data-kv="${k}">${v.label}
+             <span class="kdays">chase in ${v.days}d</span></button>`).join("")}
+        <button class="uskip" data-wkskip="${it.id}">skip</button>
+      </div>
+    </div>`;
+  }
+  if(w.kind) return `<div class="wkind">
+      <span class="kchip">waiting for ${esc(WAIT_KIND[w.kind].label)}</span>
+      <span class="kalt">${Object.entries(WAIT_KIND).filter(([k])=>k!==w.kind).map(([k,v])=>
+        `<button class="mini" data-wkind="${it.id}" data-kv="${k}" data-nore="1">change to “${v.label}”</button>`).join("")}</span>
+    </div>`;
+  return `<div class="wkind">
+      <span class="kchip none">not labelled</span>
+      <span class="kalt">waiting for
+        ${Object.entries(WAIT_KIND).map(([k,v])=>
+          `<button class="mini" data-wkind="${it.id}" data-kv="${k}" data-nore="1">${v.label}</button>`).join("")}</span>
+    </div>`;
+}
 function waitBlock(it){
   const w=wOf(it.id); if(!w) return "";
   const live=isWaiting(it.id);
@@ -1625,13 +1787,22 @@ function waitBlock(it){
   const logHtml = log.length
     ? `<ul class="wlog">${log.map(e=>`<li><span class="lt">${esc((e.at||"").slice(5,16).replace("T"," "))}</span>${esc(e.text)}</li>`).join("")}</ul>`
     : `<div class="wlog none">No updates logged yet — the first chase goes here.</div>`;
-  return `<div class="wbox ${late||nowho?"nudge":""}">
+  /* `asking` lifts this box out of the collapse rule — see the CSS. */
+  return `<div class="wbox ${late||nowho?"nudge":""} ${live&&ASK_KIND.has(it.id)?"asking":""}">
     <div class="whead">
       <span class="who">👤 ${nowho?"— who? —":esc(w.who)}</span>
       <span class="wmeta">since <b>${esc(since)}</b>${log.length?` · <b>${log.length}</b> update${log.length===1?"":"s"}`:""}${stale>0?` · last touched <b>${stale}</b>d ago`:" · touched today"}</span>
-      ${w.nudge_on?`<span class="wnudge ${late?"late":""}">${late?"chase now — due ":"chase "}${esc(String(w.nudge_on))}</span>`:`<span class="wnudge">no chase date</span>`}
+      ${/* When it is overdue the chip says what to actually ASK, not just that a
+            date passed — chasing a reply and chasing the work are different
+            conversations, which is the whole point of recording the kind. */""}
+      ${w.nudge_on?`<span class="wnudge ${late?"late":""}">${late
+          ? (w.kind==="response" ? "chase now — did they reply? due "
+           : w.kind==="task"     ? "chase now — is it done? due "
+           :                       "chase now — due ")
+          : "chase "}${esc(String(w.nudge_on))}</span>`:`<span class="wnudge">no chase date</span>`}
     </div>
     ${w.what?`<div class="wwhat">Owes us: ${esc(w.what)}</div>`:""}
+    ${kindBlock(it,w,live)}
     ${nowho?`<div class="whowarn">This came from the old “waiting for someone” tag, which never recorded a name. Type who you are waiting on so it can be chased.</div>
       <div class="wadd"><input type="text" data-wwho="${it.id}" placeholder="Who are you waiting on?">
         <button class="mini" data-wwhosave="${it.id}">Save name</button></div>`:""}
@@ -1995,6 +2166,22 @@ function wire(){
      never the completion — which is what makes it safe to offer at all. */
   document.querySelectorAll("[data-uskip]").forEach(el=>el.onclick=()=>{
     ASK_DID.delete(el.getAttribute("data-uskip")); render(); });
+  /* "waiting for what?" — a reply or the work. `data-nore` marks the quiet
+     re-label controls on an already-parked card, which must NOT move a chase
+     date she may have picked herself; the freshly-parked prompt does re-arm,
+     because setting the right fuse is the entire reason for asking. */
+  document.querySelectorAll("[data-wkind]").forEach(el=>el.onclick=()=>{
+    const id=el.getAttribute("data-wkind");
+    setWaitingKind(id, el.getAttribute("data-kv"),
+                   !el.getAttribute("data-nore"))
+      .then(()=>{ ASK_KIND.delete(id); render(); })
+      .catch(()=>{ ASK_KIND.delete(id); render(); });
+  });
+  /* Skip writes NOTHING — her rule: an unanswered question stays unanswered
+     rather than being stored as a guess. The card keeps its default fuse and can
+     still be labelled later from the quiet control, without re-parking it. */
+  document.querySelectorAll("[data-wkskip]").forEach(el=>el.onclick=()=>{
+    ASK_KIND.delete(el.getAttribute("data-wkskip")); render(); });
   /* `▸ source` — per card, so opening the evidence on one does not unfold it
      on every other card in the view. */
   document.querySelectorAll("[data-src]").forEach(el=>el.onclick=()=>{
@@ -2059,8 +2246,24 @@ function wire(){
     patch(id,{due:el.value||null}).then(()=>render());
   });
   document.querySelectorAll("[data-lane]").forEach(el=>el.onchange=()=>{
-    const id=el.getAttribute("data-lane"); byId(id).lane=el.value;
-    patch(id,{lane:el.value}).then(()=>render());
+    const id=el.getAttribute("data-lane"), v=el.value;
+    /* "wait:<who>" is not a lane — it parks the card with that person. One click:
+       `who` is the person she just picked and the fuse has a default, so there is
+       nothing to type and nothing to confirm. The card moves FIRST; the
+       reply-vs-work question is asked after, and is skippable. */
+    if(v.indexOf("wait:")===0){
+      const who=v.slice(5);
+      enterWaiting(id,{who:WAIT_PICK_LABEL[who]||who,
+                       first_update:"Parked with "+(WAIT_PICK_LABEL[who]||who)
+                                    +" from the card's lane menu"})
+        .then(()=>{ ASK_KIND.add(id); render();
+          toast("Waiting on "+(WAIT_PICK_LABEL[who]||who)
+                +" — off the board, with a chase date"); })
+        .catch(()=>render());  /* re-render so the select snaps back, not stuck */
+      return;
+    }
+    byId(id).lane=v;
+    patch(id,{lane:v}).then(()=>render());
   });
   /* inline edits — save on blur, no re-render so the caret survives */
   document.querySelectorAll("[data-subj]").forEach(el=>el.onblur=()=>{

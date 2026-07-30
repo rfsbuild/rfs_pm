@@ -98,7 +98,18 @@ CLAUDE_BIN = _resolve_claude()
 # Generous on purpose. The model loads two MCP schemas and may read threads. A
 # hung poll is a failure, but a poll killed at 60s on a slow morning is a false
 # alarm — and false alarms are how a red banner turns into wallpaper.
-TIMEOUT_S = int(os.environ.get("PM_SWEEP_TIMEOUT", "600"))
+#
+# 600 → 1200 after MEASURING it (2026-07-30): a cold run with no watermark reads
+# the whole day across 12 channels plus Gmail and took **12m06s** (16:37:29 →
+# 16:49:35, SLACK_OK=53 GMAIL_OK=30). 600s killed it mid-flight. A cold run is
+# the 07:45 case — the overnight window is the widest one — so the ceiling has to
+# clear it. The :00/:30 polls read a 30-minute window and should be far quicker;
+# if they are not, the cadence is wrong, not the timeout.
+TIMEOUT_S = int(os.environ.get("PM_SWEEP_TIMEOUT", "1200"))
+# Where a failed run's output is kept so a timeout can be diagnosed at all.
+# One file, overwritten each time: the interesting run is always the last one,
+# and an unbounded log on a job that fires 19×/day is its own problem.
+LOG_PATH = ROOT / "last_sweep_output.txt"
 
 OK_RE = {"slack": re.compile(r"SLACK_OK=(-?\d+)"),
          "gmail": re.compile(r"GMAIL_OK=(-?\d+)")}
@@ -150,7 +161,14 @@ Each item follows the board contract:
   ctx_body: [...]  — the source lines, inline HTML, no <p> wrappers.
   claude_done: [...]  — what you already did for her; [] if genuinely nothing.
   hadassa_todo: [...] — what only she can do.
-  Any card asking her to get something from a person MUST carry a `draft`.
+  Any card asking her to get something from a person MUST carry a `draft`,
+      and a draft is an OBJECT, never a string:
+        "draft": {{"to": "...", "subject": "...", "body": "..."}}
+      All three keys are required. pm_ingest REFUSES the whole briefing if any
+      draft is a bare string — measured on 2026-07-30, when a 12-minute run
+      produced 19 good items and every one was discarded because this line said
+      only "MUST carry a draft" and left the shape to be guessed.
+      `to` may be a name when the address is unknown ("Rafael", "Saba + MK").
 Only NEW or genuinely-changed items. Do not restate cards the board has.
 
 STEP 5 — REPORT these on their own lines, exactly, even when the count is 0:
@@ -223,13 +241,36 @@ def run_sweep(path=None, dry_run=False, open_browser=False, wrap=False):
         proc = subprocess.run([CLAUDE_BIN, "-p", prompt], capture_output=True,
                               text=True, timeout=TIMEOUT_S, cwd=str(ROOT))
         text = (proc.stdout or "") + "\n" + (proc.stderr or "")
-    except subprocess.TimeoutExpired:
-        return _fail(path, "the sweep timed out after %ds" % TIMEOUT_S,
+    except subprocess.TimeoutExpired as exc:
+        # Keep whatever the run had already produced. Discarding it made the
+        # first real timeout (2026-07-30 16:35) completely undiagnosable: the
+        # failure said "timed out" and nothing else, so there was no way to tell
+        # a stuck connector from a run that was simply still working. The
+        # markers are printed LAST, so a timed-out run has no counts — but the
+        # tail shows how far it got, which is the whole question.
+        partial = ((exc.stdout or "") if isinstance(exc.stdout, str)
+                   else (exc.stdout or b"").decode("utf-8", "replace"))
+        perr = ((exc.stderr or "") if isinstance(exc.stderr, str)
+                else (exc.stderr or b"").decode("utf-8", "replace"))
+        tail = ((partial + "\n" + perr).strip() or "(the run produced no output at all)")
+        try:
+            LOG_PATH.write_text(tail)
+        except Exception:
+            pass
+        return _fail(path, "the sweep timed out after %ds — last output: %s"
+                     % (TIMEOUT_S, tail[-400:].replace("\n", " ⏎ ")),
                      list(S.REQUIRED_SWEEP_SOURCES))
     except FileNotFoundError:
         return _fail(path, "the `%s` CLI is not on PATH — a LaunchAgent does "
                            "not inherit your shell profile" % CLAUDE_BIN,
                      list(S.REQUIRED_SWEEP_SOURCES))
+
+    # Kept on EVERY run, not only failures: "no result reported by slack" is
+    # unactionable without the transcript that failed to report it.
+    try:
+        LOG_PATH.write_text(text)
+    except Exception:
+        pass
 
     counts, cursors, missing = _parse_markers(text)
     if missing:
@@ -253,8 +294,15 @@ def run_sweep(path=None, dry_run=False, open_browser=False, wrap=False):
         try:
             got = I.ingest(items, path=path)
         except ValueError as exc:
-            return _fail(path, "the briefing failed validation: %s"
-                         % str(exc).splitlines()[0], [])
+            # `.splitlines()[0]` alone was useless: pm_ingest puts the headline on
+            # line 1 and every actual defect on the lines after it, so the recorded
+            # failure read "briefing is invalid, nothing was written:" and stopped
+            # at the colon. Keep the first few defects — that is the whole message.
+            lines = [l.strip() for l in str(exc).splitlines() if l.strip()]
+            detail = "; ".join(lines[1:5]) or (lines[0] if lines else "no detail")
+            more = "" if len(lines) <= 5 else " (+%d more)" % (len(lines) - 5)
+            return _fail(path, "the briefing failed validation: %s%s"
+                         % (detail, more), [])
         res["ingested"] = len(got["added"]) + len(got["updated"])
         res["trimmed"] = got.get("trimmed") or []
 

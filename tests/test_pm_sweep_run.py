@@ -22,8 +22,10 @@ What these LOCK — every one of them is a way the sweep could lie:
 
 Run:  cd ~/rfs_pm && python3 -m pytest tests -q
 """
+import json
 import os
 import sys
+import types
 
 import pytest
 
@@ -183,3 +185,65 @@ def test_a_missing_binary_fails_loudly_rather_than_sweeping_empty(path, monkeypa
     assert "not on PATH" in res["reason"]
     st, _ = S.load_state(path)
     assert st["last_sweep_failure"], "the failure must reach the board"
+
+
+# ── the draft contract (2026-07-30, after a 12-minute run was thrown away) ──
+
+def test_the_prompt_states_the_draft_OBJECT_shape():
+    """pm_ingest refuses a whole briefing when any `draft` is a bare string, and
+    on the first real run every one of them was — 19 good items and 12m06s
+    discarded because the prompt said only "MUST carry a draft".
+
+    A contract enforced by the validator but absent from the prompt is not a
+    contract, it is a trap. This locks the shape into the instruction itself.
+    """
+    import pm_sweep_run as R
+    st = S.blank_state(brief_date="2026-07-30")
+    _, _, prompt = R.build_prompt(st)
+    assert '"draft"' in prompt
+    for key in ('"to"', '"subject"', '"body"'):
+        assert key in prompt, "the prompt must name every required draft key"
+    low = prompt.lower()
+    assert "object" in low and "never a string" in low, \
+        "state the shape explicitly — the failure was a guessed shape, not a missing field"
+
+
+def test_the_timeout_clears_a_measured_cold_run():
+    """A cold run (no watermark → the whole day, 12 channels + Gmail) measured
+    12m06s. A ceiling below that kills the 07:45 run every morning, which is the
+    widest window of the day."""
+    import pm_sweep_run as R
+    assert R.TIMEOUT_S >= 780, \
+        "600s killed a real 12m06s cold run on 2026-07-30 — keep headroom over it"
+
+
+def test_a_validation_failure_records_the_actual_defects(path, monkeypatch, tmp_path):
+    """Only the exception's FIRST line used to be kept — but pm_ingest puts the
+    headline on line 1 and every real defect on the lines after it, so the
+    recorded failure read "briefing is invalid, nothing was written:" and stopped
+    dead at the colon. It cost a separate investigation to find out that 8 drafts
+    were the wrong shape. Behavioural, not a source-string grep: an assertion
+    about absent source text trips on the comment explaining the fix.
+    """
+    out = tmp_path / "briefing.json"
+    out.write_text(json.dumps({"items": [{"id": "x", "subject": "x"}]}))
+    monkeypatch.setattr(R, "build_prompt",
+                        lambda st: ({"slack": "", "gmail": ""}, out, "prompt"))
+    monkeypatch.setattr(R.subprocess, "run", lambda *a, **k: types.SimpleNamespace(
+        stdout="SLACK_OK=3\nGMAIL_OK=2\nSLACK_CURSOR=1\nGMAIL_CURSOR=2\n", stderr=""))
+
+    def _boom(items, path=None):
+        raise ValueError("briefing is invalid, nothing was written:\n"
+                         "  - item[3] foo draft must be an object with to/subject/body\n"
+                         "  - item[9] bar draft must be an object with to/subject/body")
+    monkeypatch.setattr(R.I, "ingest", _boom)
+
+    res = R.run_sweep(path=path)
+    assert res["ok"] is False
+    assert "draft must be an object" in res["reason"], \
+        "the recorded reason must name the actual defect, not just the headline"
+    assert "item[3]" in res["reason"] and "item[9]" in res["reason"]
+    st, _ = S.load_state(path)
+    assert "draft must be an object" in st["last_sweep_failure"]["reason"]
+    # A refused briefing must not consume the messages it declined to record.
+    assert not (st.get("watermarks") or {}).get("slack")

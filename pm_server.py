@@ -227,6 +227,16 @@ class Handler(BaseHTTPRequestHandler):
                 if res is None:
                     return self._send(404, {"error": "no such item"})
                 return self._send(400 if res.get("error") else 200, res)
+            # Sits above the bare "/waiting" branch for the same reason the
+            # comment below spells out for "/update": keep every longer waiting
+            # path ahead of the short one so an id can never absorb a suffix.
+            if rest.endswith("/waiting/kind"):
+                iid = rest[: -len("/waiting/kind")]
+                res = S.set_waiting_kind(iid, body.get("kind"),
+                                         renudge=body.get("renudge", True))
+                if res is None:
+                    return self._send(404, {"error": "no such item"})
+                return self._send(400 if res.get("error") else 200, res)
             if rest.endswith("/waiting"):
                 iid = rest[: -len("/waiting")]
                 if body.get("clear"):
@@ -237,6 +247,7 @@ class Handler(BaseHTTPRequestHandler):
                     res = S.set_waiting(iid, body.get("who"),
                                         what=body.get("what") or "",
                                         nudge_on=body.get("nudge_on") or None,
+                                        kind=body.get("kind") or None,
                                         first_update=body.get("first_update") or None)
                 if res is None:
                     return self._send(404, {"error": "no such item"})
