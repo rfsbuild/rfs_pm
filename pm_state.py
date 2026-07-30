@@ -32,6 +32,7 @@ CONCURRENCY
     flock for the whole read-modify-write, so a click can never clobber a
     click made a moment earlier in another tab.
 """
+import copy
 import datetime
 import fcntl
 import json
@@ -118,6 +119,26 @@ ITEM_FIELDS = (
     # is a record of her actions, not a status board, so a card with no `did`
     # has nothing to report even when it is done. Set 2026-07-28.
     "did",
+    # ── the update stream (2026-07-30) ──
+    # Her ask, two ways on two days: "i need to have the completed items
+    # somewhere cause if they ask me if I did something and I don't remember, I
+    # need to have that somewhere to confirm", and an update box on every card
+    # so she can record what happened as the day moves.
+    #
+    # Those are ONE mechanism, not two: both are "append a timestamped entry to
+    # this card". One stream, two entry points — written any time, or prompted
+    # at tick-time.
+    #
+    # WHY THIS EXISTS ALONGSIDE `did` RATHER THAN INSTEAD OF IT:
+    # `did` is in PATCHABLE, so it can be overwritten — and a field that can be
+    # rewritten is not evidence. `updates` is append-only here and over HTTP,
+    # exactly like the waiting-space chase log, so it can answer "did I do this,
+    # and when?" against someone who remembers differently. `did` stays as the
+    # one-line headline the daily report reads; the stream is the record.
+    #
+    # list[{at, text, kind}] — kind is "update" (written mid-day) or "done"
+    # (captured at the tick). Never edited, never deleted.
+    "updates",
     # ── The split (2026-07-29) ──
     # Added after Hadassa's instruction: "absolutely everything you can help me
     # with, do beforehand, I will want you to. Final word will always be mine."
@@ -302,6 +323,12 @@ def new_item(id, subject, **kw):
         # only because the reportable filter already proved it truthy). Declared
         # here so the key always exists and normalize() can heal older files.
         "did": None,
+        # The append-only update stream — see ITEM_FIELDS. A list here (not
+        # None) so every reader can iterate without a guard, and so normalize()
+        # backfills it onto the items that already exist in her live state.
+        # This is the SAME omission the `did` comment above records, caught by
+        # the ITEM_FIELDS-completeness test rather than in production.
+        "updates": [],
         # The split — see ITEM_FIELDS. Lists, so the UI can render them as two
         # checklists side by side rather than one undifferentiated blob.
         "claude_done": [],
@@ -328,7 +355,20 @@ def normalize(state):
     ref = new_item("", "")
     for it in state["items"]:
         for k, v in ref.items():
-            it.setdefault(k, v)
+            # deepcopy, NOT setdefault(k, v) — `ref` is built ONCE above, so
+            # handing its value straight over gave every item that was missing
+            # a key THE SAME list object. Any in-place append then wrote to
+            # every card at once.
+            #
+            # Found 2026-07-30 the first time a default list was appended to
+            # rather than replaced wholesale: one update posted to one card
+            # appeared, with an identical timestamp, on all 54. The other list
+            # defaults (ctx_body, links, pills, where, claude_done,
+            # hadassa_todo) were aliased in exactly the same way and had simply
+            # never been mutated in place — the ingest always replaces them.
+            # So this is fixed for the whole class, not just for `updates`.
+            if k not in it:
+                it[k] = copy.deepcopy(v)
         # legacy/rogue values -> safe defaults
         if it.get("lane") not in LANES:
             it["lane"] = "action"
@@ -898,6 +938,49 @@ def patch_content(item_id, patch, path=STATE_PATH, now=None):
                     continue
                 it[k] = v
         return True
+    return _mutate(_fn, path, now)[1]
+
+
+UPDATE_KINDS = ("update", "done")
+
+
+def add_update(item_id, text, kind="update", set_did=False,
+               path=STATE_PATH, now=None):
+    """Append one timestamped entry to a card's update stream. APPEND-ONLY.
+
+    The same shape as add_waiting_update(), and for the same reason: this is
+    the answer to "did I do that, and when?", so nothing here may be replaced.
+    There is no edit and no delete, in this module or over HTTP.
+
+    `set_did` is what makes the tick-time prompt one interaction instead of
+    two. When she ticks a card and types what she did, that single sentence is
+    both the daily report's headline (`did`) and a line in the permanent record
+    (the appended entry). Asking for it twice is how one of them ends up empty
+    — which is precisely the state the board was already in: 28 of 49 completed
+    items carried no note at all, because nothing in her workflow ever wrote
+    one.
+
+    Note the asymmetry that is deliberate: `did` gets OVERWRITTEN (it is the
+    current headline) while the entry is APPENDED (it is the history). So
+    correcting a `did` later leaves the earlier version standing in the stream,
+    which is what makes the stream evidence rather than a draft.
+    """
+    text = (text or "").strip()
+    if not text:
+        return {"error": "an update needs some text"}
+    if kind not in UPDATE_KINDS:
+        kind = "update"
+
+    def _fn(state):
+        it = get_item(state, item_id)
+        if it is None:
+            return None
+        it.setdefault("updates", []).append(
+            {"at": _now_iso(now), "text": text, "kind": kind})
+        if set_did:
+            it["did"] = text
+        return {"ok": True, "id": item_id, "updates": len(it["updates"]),
+                "did": it.get("did")}
     return _mutate(_fn, path, now)[1]
 
 

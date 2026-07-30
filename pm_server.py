@@ -94,6 +94,10 @@ def to_ui(state):
             # same reason as `waiting`: it is her record, and an ingest run
             # must never be able to overwrite it.
             "did": it.get("did"),
+            # The append-only update stream (2026-07-30). In `clicks` for the
+            # same reason as `waiting` and `did`: it is HER record, and an
+            # ingest run must never be able to overwrite what she wrote down.
+            "updates": it.get("updates") or [],
         }
     return items, clicks
 
@@ -224,6 +228,23 @@ class Handler(BaseHTTPRequestHandler):
                                         what=body.get("what") or "",
                                         nudge_on=body.get("nudge_on") or None,
                                         first_update=body.get("first_update") or None)
+                if res is None:
+                    return self._send(404, {"error": "no such item"})
+                return self._send(400 if res.get("error") else 200, res)
+            # ── the update stream (2026-07-30) ──
+            # MUST stay below the /waiting/update branch above: that path also
+            # ends in "/update", so testing this one first would swallow every
+            # chase-log write and parse the id as "<id>/waiting". Ordering is
+            # the whole safety here, hence this comment rather than a subtler
+            # regex.
+            #
+            # Append-only, like the chase log — there is deliberately no route
+            # that edits or deletes an entry.
+            if rest.endswith("/update"):
+                iid = rest[: -len("/update")]
+                res = S.add_update(iid, body.get("text"),
+                                   kind=body.get("kind") or "update",
+                                   set_did=bool(body.get("set_did")))
                 if res is None:
                     return self._send(404, {"error": "no such item"})
                 return self._send(400 if res.get("error") else 200, res)

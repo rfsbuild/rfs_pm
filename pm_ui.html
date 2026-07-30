@@ -282,6 +282,41 @@ a{color:var(--brand-deep);}
 .wadd input[type=date]{border:1px solid var(--rule);background:var(--card);
   border-radius:8px;padding:6px 8px;font-size:12.5px;color:var(--muted);}
 .wadd .lbl2{font-size:11px;color:var(--muted);font-weight:600;}
+/* ── the work log (2026-07-30) — her append-only record, on EVERY card ──
+   A deliberately DIFFERENT accent from .wbox. The chase log is about someone
+   else owing us something; this is about what she did. On a waiting card both
+   boxes render, and two identical-looking log boxes would read as a duplicate
+   rather than as two different records. Green = her work, brand/red = the
+   chase. Same .wlog / .wadd internals so it is one design, not two. */
+.ubox{margin:0 14px 12px;background:#f4fbf7;border:1px solid var(--rule);
+  border-left:3px solid var(--ok);border-radius:8px;padding:10px 12px;}
+/* NOT var(--ok): #2fa36b on this pale green measures 3.04:1, and at 9.5px
+   uppercase that is small text needing 4.5:1. Darkened to 5.06:1 — measured in
+   the browser, not judged by eye. Scoped to this label so the app's --ok token
+   (tiles, pills, the ✓ flash) is untouched. */
+.ubox .ulbl{font-size:9.5px;text-transform:uppercase;letter-spacing:.08em;
+  color:#1f7a4e;font-weight:750;}
+.ubox .uhint{font-size:11.5px;color:var(--muted);margin-top:1px;line-height:1.4;}
+/* --muted reads 4.8:1 on white but only 4.10:1 once the prompt tints the
+   background brand-soft, and at 11.5px that is normal text — measured, not
+   eyeballed. Darker ink inside the prompt only; the plain box stays on white
+   where --muted is fine. */
+.ubox.prompt .uhint,.ubox.prompt .uskip{color:var(--body);}
+.ubox .wlog li .uk{font-size:10px;font-weight:750;text-transform:uppercase;
+  letter-spacing:.06em;color:#1f7a4e;margin-right:6px;}
+/* The timestamp is the EVIDENTIARY half of an entry — "when did I do it" — so
+   it cannot inherit .wlog's --faint, which measures 2.49:1 here. #626a7c holds
+   5.16:1 on the work-log tint and 4.67:1 on the prompt tint, so it passes in
+   both places this box renders. Scoped to .ubox: the waiting-space chase log
+   keeps her existing styling untouched. */
+.ubox .wlog li .lt{color:#626a7c;}
+/* The tick-time prompt. Brand-coloured and pinned to the top of the card so it
+   is obviously a question being asked RIGHT NOW, not another quiet log box. */
+.ubox.prompt{background:var(--brand-soft);border-left-color:var(--brand);}
+.ubox.prompt .ulbl{color:var(--brand-deep);}
+.uskip{border:none;background:none;color:var(--muted);font-size:11.5px;
+  text-decoration:underline;padding:0 2px;}
+.uskip:hover{color:var(--ink);}
 .whowarn{margin-top:8px;font-size:12.5px;color:var(--bad);font-weight:600;}
 /* ── work she delegated to Claude (2026-07-29) ──
    Visually separate from "assigned away", because they are different promises:
@@ -407,6 +442,11 @@ input[type=date].mini{color:var(--muted);}
 .card:not(.open) .resultbox,
 .card:not(.open) .notebox,
 .card:not(.open) .crow{display:none;}
+/* The work log follows the collapse — EXCEPT while it is asking what she did.
+   That exception is the whole reason the tick-time prompt works on a board
+   whose cards are collapsed by default: she ticks the row and the question
+   appears under it, with no expand/collapse dance for a one-line answer. */
+.card:not(.open) .ubox:not(.prompt){display:none;}
 .card:not(.open) .chead{padding-bottom:11px;}
 /* The whole header row is the hit target, so a compact card opens where she
    naturally clicks. Excluded targets are handled in JS, not CSS: the title is
@@ -636,6 +676,18 @@ kbd{background:var(--rule-soft);border:1px solid var(--rule);border-bottom-width
 /* ════════ state ════════ */
 let ITEMS=[], CLICK={}, META={}, VIEW="today", CURSOR=-1;
 let SEL=new Set(), UNDO=null, OPEN=new Set();
+/* Cards currently being asked "what did you do?" after a tick (2026-07-30).
+   Declared up here with the other view state because visible() and the Today
+   branch both consult it — a card mid-question must not be filtered out from
+   under its own prompt. See updBlock() for the full reasoning and askedStill(). */
+let ASK_DID=new Set();
+/* A ticked card is `done`, and every open-only filter would drop it instantly —
+   which is exactly what happened on the first run: on the Today tab the card
+   left the DOM the moment it was ticked, so the question was armed against an
+   element that no longer existed and could never be answered. It failed
+   precisely where she actually works. A card stays put until she answers or
+   skips; both clear ASK_DID and it disappears normally on the next render. */
+const askedStill=id=>ASK_DID.has(id);
 /* Collapsed by DEFAULT (2026-07-29, her ask: "can we default toggle
    claude-doing / hadassa-doing and emails too?"). Once every card carried a
    split plus a 340px-tall email, 35 cards became an unscrollable wall.
@@ -735,7 +787,12 @@ function setLocalDone(id,v){ const s=cs(id); s.done=!!v; s.status=v?"done":"open
      must be right even if the server is slow or down. save() overwrites it with
      the server's authoritative value. */
   s.done_at = v ? new Date().toISOString() : null; }
-const rank=it=>isDrop(it.id)?3:(isDone(it.id)?2:(cs(it.id).defer?1:0));
+/* A card mid-question holds its rank instead of sinking as done. Otherwise the
+   tick sends it to the bottom of its lane and the question travels with it,
+   away from where she just clicked — she would have to hunt for a prompt she
+   did not ask to move. It sinks normally the moment she answers or skips. */
+const rank=it=>askedStill(it.id)?0:
+  (isDrop(it.id)?3:(isDone(it.id)?2:(cs(it.id).defer?1:0)));
 const KR={compliance:0,pay:1,overdue:1,action:2};
 
 /* ════════ server ════════ */
@@ -793,6 +850,24 @@ function waitingUpdate(id,text,nudge){
       /* Re-read the item so the rendered log is the stored log, to the second. */
       return fetch("/api/state").then(r=>r.json()).then(d=>{
         const fresh=(d.state||{})[id]; if(fresh) cs(id).waiting=fresh.waiting;
+        setSave("saved"); return j; }); });
+}
+/* The work-log write. Round-trips and takes the SERVER's stream as the new
+   truth, exactly like waitingUpdate(): entries are server-stamped and
+   append-only, so an optimistic local push would show a time the file does not
+   hold. `set_did` also overwrites the card's one-line `did` headline, which is
+   what the daily report reads — the appended entry is the permanent record,
+   `did` is the current summary of it. */
+function addUpdate(id,text,setDid){
+  setSave("saving");
+  return fetch("/api/item/"+encodeURIComponent(id)+"/update",{method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({text:text,kind:setDid?"done":"update",set_did:!!setDid})})
+    .then(r=>r.json()).then(j=>{
+      if(j.error){ setSave("error",j.error); throw new Error(j.error); }
+      return fetch("/api/state").then(r=>r.json()).then(d=>{
+        const fresh=(d.state||{})[id];
+        if(fresh){ cs(id).updates=fresh.updates||[]; cs(id).did=fresh.did; }
         setSave("saved"); return j; }); });
 }
 function unblockWaiting(id,reason){
@@ -889,7 +964,7 @@ function visible(){
     if(VIEW==="done"    && !isDone(it.id)) return false;
     if(VIEW==="dropped" && !isDrop(it.id)) return false;
     if(VIEW!=="done" && VIEW!=="dropped" && isDrop(it.id)) return false;
-    if(VIEW!=="done" && FILT.openOnly && isDone(it.id)) return false;
+    if(VIEW!=="done" && FILT.openOnly && isDone(it.id) && !askedStill(it.id)) return false;
     /* Waiting items LEAVE the main board — her call: "it goes to a separate
        space". They appear in the Waiting tab and nowhere else, so the Open count
        and every lane view describe only work she can actually move today.
@@ -1077,7 +1152,7 @@ function histToUi(r){
     status:r.status||"done", done:true, done_at:r.done_at, done_by:r.done_by,
     dismiss_reason:r.dismiss_reason, assignee:r.assignee, defer:r.defer,
     deferDays:r.defer_days||0, note:r.note, did:r.did, project:r.project,
-    waiting:r.waiting, _archived:true});
+    waiting:r.waiting, updates:r.updates||[], _archived:true});
   HIST_UI[r.id]=it; return it;
 }
 let DEXP=new Set();
@@ -1279,7 +1354,8 @@ function render(){
        record in the Done tab and in the % ring; it has no claim on the tab whose
        whole question is "what is left today". */
     ["urgent","action"].forEach(l=>group(b,LANE_LABEL[l],
-      sortItems(vis.filter(i=>lane(i)===l && stat(i.id)==="open"))));
+      sortItems(vis.filter(i=>lane(i)===l
+                             && (stat(i.id)==="open" || askedStill(i.id))))));
   } else if(VIEW==="board"){
     Object.keys(LANE_LABEL).forEach(l=>group(b,LANE_LABEL[l],sortItems(vis.filter(i=>lane(i)===l))));
   } else if(VIEW==="project"){
@@ -1409,6 +1485,7 @@ function card(it){
     ${drop?`<div class="dismissbox"><div class="lbl">Not needed — your reason</div>${esc(s.dismiss_reason||"")}</div>`:""}
     ${s.claude_result?`<div class="resultbox"><div class="lbl">🤖 What Claude did</div>${esc(s.claude_result)}</div>`:""}
     ${s.note?`<div class="notebox"><div class="lbl">Your note</div>${esc(s.note)}</div>`:""}
+    ${updBlock(it)}
     <div class="crow">
       <button class="mini" data-toggle="${it.id}">▾ Close card</button>
       <select class="mini" data-asg="${it.id}">
@@ -1475,6 +1552,63 @@ function waitBlock(it){
       <span style="flex:1"></span>
       <button class="mini" data-wclear="${it.id}">↩ Unblocked — back to board</button>
     </div>`:""}
+  </div>`;
+}
+/* ── the work log — her append-only record, on EVERY card (2026-07-30) ──
+   Two of her asks collapsed into one mechanism: an update box on every card,
+   and "if they ask me if I did something and I don't remember, I need to have
+   that somewhere to confirm". Both are "append a dated line to this card", so
+   this is one stream with two entry points — typed any time, or prompted at
+   the tick.
+
+   It renders on done and archived cards too: looking a FINISHED item up later
+   is the entire point of it. Archived cards are neutralised by `.dfull.arch`
+   in CSS (pointer-events on every control), so the field renders but cannot
+   POST into an id that no longer exists.
+
+   ASK_DID is not persisted anywhere on purpose. If she reloads mid-question
+   the tick is already saved and the question is simply gone — a pending
+   prompt is not something worth restoring, and restoring it would nag. */
+function updBlock(it){
+  const s=cs(it.id), log=(s.updates||[]).filter(Boolean);
+  const asking=ASK_DID.has(it.id);
+  const lines=log.map(e=>{
+    const when=esc((e.at||"").slice(5,16).replace("T"," "));
+    const tag=e.kind==="done"?`<span class="uk">did</span>`:"";
+    return `<li><span class="lt">${when}</span>${tag}${esc(e.text)}</li>`;
+  }).join("");
+  const logHtml = log.length
+    ? `<ul class="wlog">${lines}</ul>`
+    : `<div class="wlog none">Nothing logged on this card yet.</div>`;
+
+  /* The tick-time question. Rendered as its own box ABOVE the log so it reads
+     as a question being asked now, not as another quiet field. It is purely
+     additive — the tick was already saved by save() before this appeared, so
+     skipping it, reloading, or ignoring it can never lose the completion. */
+  if(asking){
+    return `<div class="ubox prompt">
+      <div class="ulbl">✓ Marked done — what did you do?</div>
+      <div class="uhint">One line, in your words. It is stamped with the time and
+        never overwritten, so it can answer “did I do that?” later.</div>
+      <div class="wadd">
+        <input type="text" data-uupd="${it.id}" data-did="1"
+               placeholder="e.g. Called Tess, she is reissuing the CO on Monday">
+        <button class="pbtn sm" data-usave="${it.id}" data-did="1">Save</button>
+        <button class="uskip" data-uskip="${it.id}">skip</button>
+        <span class="ok-flash" id="uok-${it.id}">✓ logged</span>
+      </div>
+      ${log.length?logHtml:""}
+    </div>`;
+  }
+  return `<div class="ubox">
+    <div class="ulbl">Work log · ${log.length} ${log.length===1?"entry":"entries"}</div>
+    ${logHtml}
+    <div class="wadd">
+      <input type="text" data-uupd="${it.id}"
+             placeholder="+ What happened / what you did — dated, and never overwritten">
+      <button class="pbtn sm" data-usave="${it.id}">Log it</button>
+      <span class="ok-flash" id="uok-${it.id}">✓ logged</span>
+    </div>
   </div>`;
 }
 /* The split. Renders nothing at all when a card has neither side, so cards that
@@ -1653,6 +1787,13 @@ const tile=(k,v,cl,fn)=>`<div class="tile ${cl}" onclick="${fn}"><div class="k">
 function wire(){
   document.querySelectorAll("[data-done]").forEach(el=>el.onchange=()=>{
     const id=el.getAttribute("data-done"); pushUndo(id);
+    /* The tick-time question (2026-07-30). Asked only on COMPLETION, and only
+       when the card carries no `did` yet — re-ticking something already
+       recorded would nag her for an answer she has already given. The tick is
+       saved by save() regardless, so the question is purely additive: it
+       cannot block the completion and cannot lose it. */
+    if(el.checked){ if(!String(cs(id).did||"").trim()) ASK_DID.add(id); }
+    else ASK_DID.delete(id);
     setLocalDone(id,el.checked); save(id).then(()=>render());
     toast(el.checked?"Marked done":"Reopened");
   });
@@ -1697,6 +1838,35 @@ function wire(){
   /* Enter submits — an update is one line typed in a hurry between calls. */
   document.querySelectorAll("[data-wupd]").forEach(el=>el.onkeydown=e=>{
     if(e.key==="Enter"){ e.preventDefault(); logUpdate(el.getAttribute("data-wupd")); }});
+  /* ── the work log, on every card ── */
+  const logWork=(id,setDid)=>{
+    const ti=document.querySelector(`[data-uupd="${id}"]`);
+    const text=(ti&&ti.value||"").trim();
+    if(!text){ if(ti) ti.focus(); return; }
+    addUpdate(id,text,setDid).then(()=>{
+      const f=document.getElementById("uok-"+id);
+      if(f){f.style.display="inline";setTimeout(()=>f.style.display="none",1500);}
+      ASK_DID.delete(id);
+      render(); toast(setDid?"Saved — it's on the card":"Logged");
+    }).catch(()=>{});
+  };
+  document.querySelectorAll("[data-usave]").forEach(el=>el.onclick=()=>
+    logWork(el.getAttribute("data-usave"), el.hasAttribute("data-did")));
+  document.querySelectorAll("[data-uupd]").forEach(el=>el.onkeydown=e=>{
+    if(e.key==="Enter"){ e.preventDefault();
+      logWork(el.getAttribute("data-uupd"), el.hasAttribute("data-did")); }});
+  /* Skip dismisses the question and nothing else. The tick was already saved
+     before the question appeared, so skipping costs the record a line and
+     never the completion — which is what makes it safe to offer at all. */
+  document.querySelectorAll("[data-uskip]").forEach(el=>el.onclick=()=>{
+    ASK_DID.delete(el.getAttribute("data-uskip")); render(); });
+  /* Put the cursor in the question so it can be answered by typing rather than
+     by aiming. Guarded: if she is already typing somewhere, a re-render must
+     not yank the caret out from under her. */
+  if(ASK_DID.size && !/^(INPUT|TEXTAREA)$/.test((document.activeElement||{}).tagName||"")){
+    const first=document.querySelector(".ubox.prompt input[data-uupd]");
+    if(first) first.focus();
+  }
   /* Changing only the date, with no text, still re-arms the chase — pushing the
      date is itself a decision and must persist without inventing a log line. */
   document.querySelectorAll("[data-wnudge]").forEach(el=>el.onchange=()=>{
