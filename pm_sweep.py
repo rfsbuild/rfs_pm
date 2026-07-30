@@ -4,10 +4,20 @@
 WHAT THIS IS, AND WHAT IT DELIBERATELY IS NOT.
 
 It is NOT a fetcher. Gmail and Slack are reached through claude.ai connectors
-that are authenticated per-session, so a subprocess or a cron job has no access
-to them at all — a script that "collects Slack" cannot exist on this machine
-today. Pretending otherwise would produce a scheduled job that silently returns
-nothing, which is worse than no job.
+that are authenticated per-session.
+
+⚠️ SUPERSEDED IN PART, 2026-07-30. This file originally went on to say that a
+subprocess or cron job "has no access to them at all", so a collector "cannot
+exist on this machine today". That was the honest read on 2026-07-29 and it is
+now wrong: a headless `claude -p` run loaded both connectors and returned real
+data (SLACK_TOOL_LOADED=yes SLACK_CALL=ok RESULTS=11, GMAIL_TOOL_LOADED=yes
+GMAIL_CALL=ok THREADS=5). The catch is that it ONLY works when the prompt
+explicitly tells the model to ToolSearch-load them first — they are deferred
+tools, so a prompt that merely says "search Slack" fails silently and returns a
+confident empty result, which is precisely the "worse than no job" outcome this
+paragraph warned about. The scheduled runner lives in pm_sweep_run.py; the
+registry and the contract stay HERE, and it reads them from this module rather
+than keeping a second copy.
 
 What it IS: the part of a sweep that must not live in Claude's head.
 

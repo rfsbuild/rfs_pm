@@ -72,6 +72,14 @@ a{color:var(--brand-deep);}
 .sweptchip.fresh{background:#eaf6ee;color:#1d6b3a;border-color:#bfe0ca;}
 .sweptchip.aging{background:#fdf4e3;color:#8a5a12;border-color:#eed9a8;}
 .sweptchip.stale{background:#fdecec;color:#96231f;border-color:#f2c4c1;}
+/* The failed-sweep bar (#6). Full width, not a chip — a chip reads as a status,
+   this is a warning that what she is about to trust is incomplete. */
+.sweepfail{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;
+  background:#fdecec;border:1px solid #f2c4c1;border-left:4px solid var(--bad);
+  border-radius:var(--radius);padding:9px 13px;margin:0 0 10px;}
+.sweepfail .sf-t{font-size:11.5px;font-weight:800;letter-spacing:.04em;color:#8f1f1b;}
+.sweepfail .sf-r{font-size:12.5px;color:#7a2420;}
+.sweepfail .sf-n{font-size:11.5px;color:#8a4340;}
 @media(max-width:640px){
   .mast{align-items:center;}
   .bigdate{font-size:19px;}
@@ -946,6 +954,7 @@ function boot(){
    sweep timestamp at all rather than rendering a comforting blank. */
 function renderSwept(d){
   const el=document.getElementById("sweptchip"); if(!el)return;
+  renderSweepFailure(d);
   const raw=d&&d.last_swept_at;
   if(!raw){ el.className="sweptchip stale"; el.textContent="never swept";
     el.title="No last_swept_at in state — this board has not been fed by a sweep.";
@@ -965,6 +974,34 @@ function renderSwept(d){
   el.title="Board data gathered "+t.toLocaleString()
     +(src.length?("\nSources: "+src.join(", ")):"\nNo sources recorded")
     +"\n\nThis is when the information was COLLECTED, not when the file was last written.";
+}
+/* ── #6 ── a FAILED sweep says so, at the top of the board.
+   The freshness chip above answers "how old is this?" — it cannot answer "is
+   this complete?". A poll that reached Gmail but got nothing from Slack leaves
+   a board that is BOTH recently-stamped and missing half the day. mark_swept()
+   already refuses to stamp that, but a refusal buried in a log file leaves her
+   reading a confident, partial board. This is the refusal, said out loud.
+
+   Deliberately a full-width bar and not another chip: a chip is a status, and
+   this is a warning that the thing she is about to trust is incomplete. */
+function renderSweepFailure(d){
+  const f=d&&d.last_sweep_failure, id="sweepfail";
+  let bar=document.getElementById(id);
+  if(!f||!f.reason){ if(bar) bar.remove(); return; }
+  if(!bar){
+    bar=document.createElement("div"); bar.id=id; bar.className="sweepfail";
+    const host=document.querySelector(".views");
+    if(host&&host.parentNode) host.parentNode.insertBefore(bar,host.nextSibling);
+    else document.body.insertBefore(bar,document.body.firstChild);
+  }
+  const at=new Date(f.at), ok=!isNaN(at);
+  const when=ok?at.toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit",hour12:false}):"";
+  const src=(f.sources||[]).join(", ");
+  bar.innerHTML=`<span class="sf-t">🔴 SWEEP FAILED${when?" at "+esc(when):""}</span>
+    <span class="sf-r">${esc(f.reason)}${src?" — "+esc(src):""}</span>
+    <span style="flex:1"></span>
+    <span class="sf-n">This board may be missing items. It is showing the last
+      good sweep, not now.</span>`;
 }
 /* Re-age the chip without a refetch so a tab left open all afternoon stops
    claiming it is fresh. One minute is cheap and it is the whole point. */

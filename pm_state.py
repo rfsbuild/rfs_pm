@@ -272,6 +272,10 @@ def blank_state(brief_date=None, now=None):
         "updated_at": _now_iso(now),
         "items": [],
         "roll_log": [],
+        # Per-source read position for the polling sweep — see get_watermark().
+        "sweep_watermarks": {},
+        # None = the last sweep succeeded (or none has run).
+        "last_sweep_failure": None,
     }
 
 
@@ -382,6 +386,10 @@ def normalize(state):
     state.setdefault("items", [])
     state.setdefault("roll_log", [])
     state.setdefault("brief_date", _today())
+    # Her live file predates both of these; back-fill so every reader can look
+    # them up without a guard.
+    state.setdefault("sweep_watermarks", {})
+    state.setdefault("last_sweep_failure", None)
     ref = new_item("", "")
     for it in state["items"]:
         for k, v in ref.items():
@@ -1276,7 +1284,63 @@ def mark_swept(evidence, path=STATE_PATH, now=None):
         state["last_swept_at"] = _now_iso(now)
         state["last_swept_sources"] = sorted(evidence)
         state["last_swept_evidence"] = evidence
+        # A success clears any recorded failure. Without this the red banner
+        # outlives the problem and starts crying wolf, which is how a warning
+        # becomes something she scrolls past.
+        state["last_sweep_failure"] = None
         return state["last_swept_at"]
+    return _mutate(_fn, path, now)[1]
+
+
+# ── the live watermarked sweep (2026-07-30) ────────────────────────────────
+# `last_swept_at` is a single global stamp: it answers "how old is this board?"
+# but not "what have I already read?". Polling every 30 minutes needs the second
+# question answered PER SOURCE, or each poll re-reads the whole morning and the
+# cheap case stops being cheap.
+#
+#   sweep_watermarks = {"slack": {"cursor": "1753900000.123", "at": iso},
+#                       "gmail": {"cursor": "history-id-or-iso", "at": iso}}
+#
+# The load-bearing rule: a watermark advances ONLY after a successful ingest.
+# Advancing on a successful *fetch* means a crash between fetch and write loses
+# those messages permanently and silently — the board would simply never show
+# them, and nothing would look wrong. Re-reading a few messages is free; the
+# ingest is idempotent by id. Losing one is not.
+def get_watermark(state, source):
+    return ((state.get("sweep_watermarks") or {}).get(source) or {}).get("cursor")
+
+
+def advance_watermark(source, cursor, path=STATE_PATH, now=None):
+    """Move one source's watermark forward. Call AFTER the ingest succeeded."""
+    cursor = (str(cursor) if cursor is not None else "").strip()
+    if not cursor:
+        return {"error": "a watermark needs a cursor"}
+
+    def _fn(state):
+        wm = state.setdefault("sweep_watermarks", {})
+        wm[source] = {"cursor": cursor, "at": _now_iso(now)}
+        return {"ok": True, "source": source, "cursor": cursor}
+    return _mutate(_fn, path, now)[1]
+
+
+def record_sweep_failure(reason, sources=None, path=STATE_PATH, now=None):
+    """Persist that a sweep FAILED, so the board can say so on the page.
+
+    The counterpart to mark_swept()'s refusal. That function correctly declines
+    to stamp a sweep it has no evidence for — but a refusal that only raises
+    into a log file leaves the board showing older data while looking perfectly
+    healthy, which is the confident-partial-brief failure this whole mechanism
+    exists to prevent. A failure has to be as visible as a success.
+
+    Cleared by the next successful mark_swept().
+    """
+    def _fn(state):
+        state["last_sweep_failure"] = {
+            "at": _now_iso(now),
+            "reason": str(reason or "").strip() or "unknown",
+            "sources": sorted(sources or []),
+        }
+        return state["last_sweep_failure"]
     return _mutate(_fn, path, now)[1]
 
 

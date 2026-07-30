@@ -157,6 +157,12 @@ class Handler(BaseHTTPRequestHandler):
                 # answers "when was this file last written", NOT "how current is
                 # the information" — which is the only question the header asks.
                 "last_swept_at": state.get("last_swept_at"),
+                # A failed sweep must reach the page. mark_swept() already
+                # REFUSES to stamp a sweep it has no evidence for, but a refusal
+                # that only raises into a log leaves the board showing older
+                # data while looking perfectly healthy — a confident, partial
+                # brief, which is the exact failure this is here to prevent.
+                "last_sweep_failure": state.get("last_sweep_failure"),
                 "last_swept_sources": state.get("last_swept_sources") or [],
                 "last_swept_evidence": state.get("last_swept_evidence") or {},
                 "stale_day": state.get("brief_date") != S._today(),
