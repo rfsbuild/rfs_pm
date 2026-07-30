@@ -14,6 +14,8 @@ amounts and her private notes and must never be reachable from the LAN.
 
     GET  /                    the board
     GET  /api/state           {items, state, brief_date, stale_day, counts}
+    GET  /api/history         finished items from PAST days (the Done view's
+                              "All time" scope — see the route for why)
     POST /api/item/<id>       persist one item's click-state
     POST /api/item/<id>/patch update source-owned fields (subject, action, due…)
     POST /api/items           create a new item she typed herself
@@ -23,6 +25,7 @@ amounts and her private notes and must never be reachable from the LAN.
 import json
 import os
 import sys
+import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -74,6 +77,18 @@ def to_ui(state):
             "queued_hours": S.hours_queued(it) if it.get("assignee") == "claude" else None,
             "done_by": it.get("done_by"),
             "claude_result": it.get("claude_result"),
+            # `did` — what SHE actually did, in her voice (2026-07-30). It has
+            # existed in ITEM_FIELDS and PATCHABLE since 2026-07-28 but was in
+            # NEITHER _CONTENT_MAP nor here, so it never reached the browser:
+            # gen_daily_report.py could read it server-side while the UI could
+            # neither show nor set one. That is the whole reason 28 of 49
+            # completed items carry no `did` — the board recorded only THAT a
+            # card closed, never WHAT was done. Her ask: "if they ask me if I
+            # did something and I don't remember, I need to have that
+            # somewhere to confirm." In `clicks`, not `_CONTENT_MAP`, for the
+            # same reason as `waiting`: it is her record, and an ingest run
+            # must never be able to overwrite it.
+            "did": it.get("did"),
         }
     return items, clicks
 
@@ -133,6 +148,22 @@ class Handler(BaseHTTPRequestHandler):
                 "assignees": list(S.ASSIGNEES),
                 "defer_reasons": S.DEFER_REASONS,
             })
+        if path == "/api/history":
+            # Finished items from days already rolled forward. `archive_finished`
+            # and `history_between` have existed since the day-roll shipped, but
+            # NO route exposed them — so the archive was unreachable from the
+            # board and an archive nobody can read is not a record. The Done
+            # view's "All time" scope would otherwise silently show only the
+            # current day's items while claiming to show everything, which is
+            # the same count-vs-content defect as the Open tile on 2026-07-29.
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            start = (qs.get("start") or ["0000-00-00"])[0]
+            end = (qs.get("end") or ["9999-99-99"])[0]
+            try:
+                rows = S.history_between(start, end)
+            except Exception as exc:                     # never 500 the board
+                return self._send(200, {"items": [], "error": str(exc)})
+            return self._send(200, {"items": rows, "start": start, "end": end})
         return self._send(404, {"error": "not found"})
 
     def do_POST(self):

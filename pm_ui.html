@@ -23,7 +23,11 @@ body{background:var(--paper);color:var(--ink);
 button,input,select,textarea{font:inherit;color:inherit;}
 button{cursor:pointer;}
 a{color:var(--brand-deep);}
-.wrap{max-width:1080px;margin:0 auto;padding:0 20px;}
+/* Full-bleed 2026-07-30, her ask: "using the entire lenght". The gutter scales
+   with the viewport instead of a fixed 20px so wide screens breathe and phones
+   don't waste edge space. Text measure is held by the card/column widths
+   further down, not by a narrow page wrapper. */
+.wrap{max-width:none;margin:0 auto;padding:0 clamp(16px,2vw,40px);}
 
 /* ── header ── */
 .top{position:sticky;top:0;z-index:60;background:rgba(245,246,251,.93);
@@ -33,6 +37,35 @@ a{color:var(--brand-deep);}
 .brand .dot{color:var(--brand);}
 .datechip{font-size:12px;color:var(--muted);background:var(--rule-soft);
   border:1px solid var(--rule);padding:2px 9px;border-radius:20px;white-space:nowrap;}
+.datechip.stale{color:var(--amber);border-color:var(--amber);background:transparent;}
+
+/* ── masthead (2026-07-30) ── Her ask: "I'd rather have kinda like the one we
+   had ... but using the entire lenght and with a header." The board had a bar
+   but no header — no brandline, no readable date, and every count lived only
+   in the tiles below the toolbar. Approved from an ASCII mockup naming this
+   file by path BEFORE any code moved, per the standing mockup-first rule. */
+.mast{display:flex;align-items:flex-end;gap:16px;padding:13px 0 1px;}
+.mast-l{min-width:0;}
+.brandline{font-size:10.5px;font-weight:700;letter-spacing:.13em;
+  text-transform:uppercase;color:var(--faint);white-space:nowrap;}
+.bigdate{font-size:clamp(21px,2.4vw,31px);font-weight:750;letter-spacing:-.025em;
+  line-height:1.14;color:var(--ink);white-space:nowrap;}
+.mast-r{margin-left:auto;display:flex;align-items:center;gap:10px;flex:none;}
+.mast-stats{display:flex;align-items:center;gap:9px;padding:6px 0 9px;flex-wrap:wrap;}
+/* The counts here are computed in renderTiles() off the SAME variables the
+   tiles use — never recomputed. A header that disagrees with the tile it sits
+   above is the defect this board already shipped once (Open said 11, opened 14). */
+.statline{display:flex;align-items:center;gap:8px;font-size:12.5px;
+  color:var(--muted);font-weight:600;flex-wrap:wrap;}
+.statline b{color:var(--ink);font-weight:750;}
+.statline .sbad b{color:var(--bad);}
+.statline .sok b{color:var(--ok);}
+.statline .sdot{color:var(--faint);}
+@media(max-width:640px){
+  .mast{align-items:center;}
+  .bigdate{font-size:19px;}
+  .brandline{letter-spacing:.09em;}
+}
 .grow{flex:1;}
 .savepill{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);
   border:1px solid var(--rule);background:var(--card);padding:4px 10px;border-radius:20px;white-space:nowrap;}
@@ -56,6 +89,61 @@ a{color:var(--brand-deep);}
 .vtab.on{background:var(--card);color:var(--brand-deep);border-color:var(--rule);box-shadow:var(--shadow);}
 .vtab .n{font-size:11px;color:var(--faint);margin-left:5px;font-weight:600;}
 .vtab.on .n{color:var(--brand);}
+
+/* ── Completed record (2026-07-30) ── Grouped GC → project, then RBA /
+   Financial / Misc, per her spec. Rows are deliberately compact, not full
+   cards: this view answers "did I do that, and when" — it is a lookup surface,
+   not a work surface. */
+.dscope{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:14px 0 4px;}
+.dscope .chip b{font-weight:750;margin-left:3px;}
+.dhint{font-size:11.5px;color:var(--muted);margin-left:4px;}
+.dhint.bad{color:var(--bad);}
+.dcat,.dproj{display:flex;align-items:center;gap:9px;width:100%;text-align:left;
+  border:1px solid var(--rule);background:var(--card);border-radius:10px;
+  padding:10px 13px;margin:10px 0 0;transition:.13s;}
+.dcat:hover,.dproj:hover{border-color:var(--brand);}
+.dcat .dc{font-size:11px;font-weight:750;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--ink);}
+.dproj{margin:6px 0 0 22px;width:calc(100% - 22px);background:var(--rule-soft);}
+.dproj .dc{font-size:13.5px;font-weight:700;color:var(--brand-deep);letter-spacing:-.01em;}
+/* The open/closed marker carries the whole affordance of an accordion, so it has
+   to be legible. Drawn in CSS rather than set as a glyph: ▸ (U+25B8) rendered at
+   the correct 12px and colour but reads as a stray dot in the macOS system font,
+   because it is the SMALL-triangle codepoint. A border triangle has no font
+   dependency and rotates to show state. */
+.dcat .di,.dproj .di{flex:none;width:0;height:0;margin:0 3px 0 1px;
+  border-left:6px solid var(--muted);
+  border-top:4.5px solid transparent;border-bottom:4.5px solid transparent;
+  transition:transform .15s ease;}
+.dcat.open .di,.dproj.open .di{transform:rotate(90deg);border-left-color:var(--brand);}
+/* Informational, not an alarm: `nudgestrip` is styled red for work that needs
+   chasing. "N have no note" is a statement about the record's completeness. */
+.dgap{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  background:var(--rule-soft);border:1px solid var(--rule);
+  border-left:3px solid var(--faint);border-radius:var(--radius);
+  padding:9px 13px;margin:10px 0 4px;}
+.dgap .nt{font-size:13px;font-weight:650;color:var(--body);}
+.dgap .nn{font-size:12.5px;color:var(--muted);}
+.dcat .dn,.dproj .dn{margin-left:auto;font-size:11.5px;font-weight:650;color:var(--muted);}
+.drow{display:flex;align-items:flex-start;gap:10px;padding:9px 13px 9px 0;
+  margin-left:44px;border-bottom:1px solid var(--rule-soft);}
+.drow:last-child{border-bottom:0;}
+.drow .dck{color:var(--ok);font-weight:750;flex:none;line-height:1.5;}
+.drow .dbody{min-width:0;flex:1;}
+.drow .dsub{font-size:13.5px;font-weight:600;color:var(--ink);overflow-wrap:break-word;}
+.drow .ddid{font-size:12.5px;color:var(--body);margin-top:2px;overflow-wrap:break-word;}
+.drow .ddid.none{color:var(--faint);font-style:italic;}
+.drow .dnote{font-size:12px;color:var(--muted);margin-top:2px;overflow-wrap:break-word;}
+.drow .dmeta{flex:none;display:flex;align-items:center;gap:7px;font-size:11.5px;
+  color:var(--muted);white-space:nowrap;padding-top:1px;}
+.drow .dwho{padding:1px 7px;border-radius:20px;background:var(--rule-soft);
+  border:1px solid var(--rule);font-weight:650;}
+.drow .dwho.cl{background:#eceffe;border-color:#c9d0fb;color:#3c46a8;}
+@media(max-width:640px){
+  .drow{margin-left:18px;flex-wrap:wrap;}
+  .dproj{margin-left:12px;width:calc(100% - 12px);}
+  .drow .dmeta{padding-left:20px;}
+}
 
 /* toolbar */
 .tools{display:flex;gap:8px;align-items:center;padding:0 0 12px;flex-wrap:wrap;}
@@ -346,18 +434,26 @@ kbd{background:var(--rule-soft);border:1px solid var(--rule);border-bottom-width
 
 <div class="top">
   <div class="wrap">
-    <div class="top-row">
-      <span class="brand">RFS PM<span class="dot">.</span></span>
-      <span class="datechip" id="datechip">—</span>
+    <div class="mast">
+      <div class="mast-l">
+        <div class="brandline">RFS Builders · Project Management</div>
+        <div class="bigdate" id="bigdate">—</div>
+      </div>
+      <div class="mast-r">
+        <span class="savepill" id="savepill"><span class="sd"></span><span id="savetext">Saved</span></span>
+        <svg class="ring" id="ring" viewBox="0 0 40 40">
+          <circle class="bg" cx="20" cy="20" r="16"></circle>
+          <circle class="fg" id="ringfg" cx="20" cy="20" r="16"
+            transform="rotate(-90 20 20)" stroke-dasharray="0 100"></circle>
+          <text x="20" y="24" text-anchor="middle" id="ringtxt">0%</text>
+        </svg>
+      </div>
+    </div>
+    <div class="mast-stats">
+      <span class="statline" id="statline"></span>
       <span class="grow"></span>
       <button class="chip ghost" id="roll-btn" style="display:none" onclick="rollForward()">Start new day →</button>
-      <span class="savepill" id="savepill"><span class="sd"></span><span id="savetext">Saved</span></span>
-      <svg class="ring" id="ring" viewBox="0 0 40 40">
-        <circle class="bg" cx="20" cy="20" r="16"></circle>
-        <circle class="fg" id="ringfg" cx="20" cy="20" r="16"
-          transform="rotate(-90 20 20)" stroke-dasharray="0 100"></circle>
-        <text x="20" y="24" text-anchor="middle" id="ringtxt">0%</text>
-      </svg>
+      <span class="datechip" id="datechip">—</span>
     </div>
     <div class="views" id="views"></div>
   </div>
@@ -632,7 +728,19 @@ function patch(id,fields){
 function boot(){
   return fetch("/api/state").then(r=>r.json()).then(d=>{
     ITEMS=d.items||[]; CLICK=d.state||{}; META=d;
-    document.getElementById("datechip").textContent=d.brief_date||"";
+    /* The masthead date is TODAY. The chip is the date the board's DATA is from,
+       and it is labelled as such: when the two differ the board is showing
+       yesterday's sweep, and an unlabelled bare date next to a big one reads as
+       a contradiction rather than a warning. */
+    document.getElementById("bigdate").textContent=
+      new Date().toLocaleDateString("en-US",
+        {weekday:"long",month:"long",day:"numeric"});
+    const dc=document.getElementById("datechip");
+    dc.textContent=d.brief_date?("data: "+d.brief_date):"";
+    dc.classList.toggle("stale",!!d.stale_day);
+    dc.title=d.stale_day
+      ? "This board still shows "+d.brief_date+"'s sweep. Start the new day to roll it forward."
+      : "Board data is current.";
     const rb=document.getElementById("roll-btn");
     rb.style.display=d.stale_day?"":"none";
     if(d.stale_day) rb.textContent="Start "+d.today+" →";
@@ -695,11 +803,220 @@ function sortItems(a){
 }
 
 /* ════════ render ════════ */
+/* ════════ Completed record (2026-07-30) ════════
+   Her ask, verbatim: "i need to have the completed items somewhere cause if they
+   ask me if I did something and I don't remember, I need to have that somewhere
+   to confirm." Built first as a separate Desktop page, which she rejected — "not
+   really helpful" — and respecified: a tab inside THIS board, "group them by GC
+   (then per project), RBA, Financial and Misc(ellaneous) so we can look them up
+   this way." Approved from a mockup before any code moved.
+
+   Two upstream defects had to be fixed for this to be a record and not a tally:
+     1. `did` — what she actually DID — sat in ITEM_FIELDS and PATCHABLE but in
+        neither _CONTENT_MAP nor clicks, so it never reached the browser. The
+        board could say THAT a card closed, never WHAT was done about it.
+     2. The day-roll archive had no route. history_between() has existed since
+        the roll shipped but nothing served it, so anything older than the
+        current board was unreachable. An archive nobody can read is not a
+        record. */
+let DONE_SCOPE="today";              /* today | week | all */
+/* True until a scope is chosen deliberately — by clicking a scope chip or by
+   arriving from a tile that counted one. While it holds, the view widens itself
+   to the narrowest range that actually contains something: opening a record of
+   completed work onto an empty page is useless, and on a board that has not been
+   rolled today's range is legitimately empty while 45 items sit behind it. */
+let DONE_SCOPE_AUTO=true;
+let HIST=[], HIST_STATE="idle";      /* idle | loading | ready | error */
+let HIST_ERR="";
+const DOPEN=new Set(["GC","RBA","FINANCIAL","MISC"]);
+
+const CAT_ORDER=["GC","RBA","FINANCIAL","MISC"];
+const CAT_LABEL={GC:"GC",RBA:"RBA",FINANCIAL:"Financial",MISC:"Miscellaneous"};
+const CAT_FIN=["accounts receivable","accounts payable","payroll",
+               "cost coding","overhead","ar","ap"];
+
+/* Mapping approved 2026-07-30 against the real `project` values on the board and
+   in the archive. Every test is a RULE, not a list of known names, so a project
+   created tomorrow lands in the right group with no code change — scale-invariant,
+   per the mandate:
+     RBA        — named RBA or prefixed with it ("RBA / Andersen")
+     FINANCIAL  — anything financ* ("Financial control", "Finance") plus the
+                  named ledger areas. The prefix test was added after an audit
+                  found a real project called "Finance" falling through to Misc.
+     GC         — a job is named after its address, so it starts with a street
+                  number. Derived, never a hardcoded job list.
+     MISC       — everything else BY FALLTHROUGH. Unrecognised names must land
+                  here rather than be invented into GC, which would put a
+                  non-job into a client-facing group. */
+function catOf(p){
+  const s=String(p||"").trim(), l=s.toLowerCase();
+  if(!s) return "MISC";
+  if(l==="rba"||l.startsWith("rba ")||l.startsWith("rba/")) return "RBA";
+  if(l.startsWith("financ")||CAT_FIN.includes(l)) return "FINANCIAL";
+  if(/^\d/.test(s)) return "GC";
+  return "MISC";
+}
+
+function loadHistory(){
+  if(HIST_STATE==="loading"||HIST_STATE==="ready") return;
+  HIST_STATE="loading";
+  fetch("/api/history").then(r=>r.json()).then(d=>{
+    HIST=(d.items||[]).filter(r=>(r.status||"done")==="done");
+    HIST_STATE="ready"; if(VIEW==="done") render();
+  }).catch(e=>{HIST_STATE="error"; HIST_ERR=e.message||"fetch failed";
+               if(VIEW==="done") render();});
+}
+function setDoneScope(s){
+  DONE_SCOPE=s; DONE_SCOPE_AUTO=false; if(s!=="today") loadHistory();
+  render(); window.scrollTo({top:0,behavior:"smooth"});
+}
+/* Keys are URI-encoded through the onclick so a project name containing a quote
+   or apostrophe cannot break the handler. */
+function dToggle(k){
+  k=decodeURIComponent(k);
+  DOPEN.has(k)?DOPEN.delete(k):DOPEN.add(k); render();
+}
+/* A search expands everything — otherwise a match hides inside a collapsed
+   group and the view reports "found" while showing nothing. */
+const dIsOpen=k=>!!(FILT.q&&FILT.q.trim())||DOPEN.has(k);
+
+/* One shape for a completed thing, whether it is still on the board or was
+   archived by a day-roll. Deduped by id: the roll removes finished items, but an
+   un-rolled board can hold an item that also exists in an archive, and listing
+   it twice would overstate the record. */
+function doneRecords(scope){
+  const q=String(FILT.q||"").toLowerCase().trim();
+  const hit=r=>!q||[r.subject,r.project,r.did,r.note]
+    .some(v=>String(v||"").toLowerCase().includes(q));
+  const seen=new Set(), out=[];
+  ITEMS.filter(i=>isDone(i.id)).forEach(i=>{
+    const s=cs(i.id); seen.add(i.id);
+    out.push({id:i.id,subject:i.subject,project:i.project,did:s.did,note:s.note,
+              by:s.done_by||"hadassa",at:String(s.done_at||"").slice(0,10),live:true});
+  });
+  if(scope!=="today") HIST.forEach(r=>{
+    if(!r||seen.has(r.id)) return; seen.add(r.id);
+    out.push({id:r.id,subject:r.subject,project:r.project,did:r.did,note:r.note,
+              by:r.done_by||"hadassa",
+              at:String(r.done_at||r.day||"").slice(0,10),live:false});
+  });
+  const t=todayStr(), from=dayAhead(-6);
+  return out.filter(r=>scope==="today"?r.at===t
+                      :scope==="week" ?(r.at&&r.at>=from)
+                      :true)
+            .filter(hit)
+            .sort((a,b)=>String(b.at||"").localeCompare(String(a.at||""))
+                       ||String(a.subject||"").localeCompare(String(b.subject||"")));
+}
+
+const dShortDate=iso=>{
+  const p=String(iso||"").split("-");
+  if(p.length<3) return "—";
+  const M=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const m=M[parseInt(p[1],10)-1];
+  return m?m+" "+parseInt(p[2],10):"—";
+};
+function dRows(rows){
+  return rows.map(r=>{
+    const who=r.by==="claude"?"Claude":(r.by==="hadassa"||!r.by?"you":r.by);
+    return `<div class="drow">`
+      +`<span class="dck">✓</span>`
+      +`<div class="dbody">`
+        +`<div class="dsub">${esc(r.subject||"(no subject)")}</div>`
+        +(r.did?`<div class="ddid">${esc(r.did)}</div>`
+               :`<div class="ddid none">no note of what was done</div>`)
+        +(r.note?`<div class="dnote">Your note: ${esc(r.note)}</div>`:"")
+      +`</div>`
+      +`<span class="dmeta">${dShortDate(r.at)}`
+        +`<span class="dwho${r.by==="claude"?" cl":""}">${esc(who)}</span></span>`
+    +`</div>`;
+  }).join("");
+}
+
+function renderDone(b){
+  loadHistory();                       /* so the scope counts are real, not partial */
+  const nT=doneRecords("today").length,
+        nW=doneRecords("week").length,
+        nA=doneRecords("all").length;
+  /* Widen to the first range with content, until she picks one herself. Runs
+     again once the archive fetch lands, which is why it is here and not in
+     boot(): at first paint nW and nA are still 0. */
+  if(DONE_SCOPE_AUTO){
+    DONE_SCOPE = nT ? "today" : (nW ? "week" : (nA ? "all" : "today"));
+  }
+  const recs=doneRecords(DONE_SCOPE);
+
+  const sb=(k,lab,n)=>`<button class="chip${DONE_SCOPE===k?" on":""}" `
+    +`onclick="setDoneScope('${k}')">${lab} <b>${n}</b></button>`;
+  let head=`<div class="dscope"><span class="rowlbl">Show</span>`
+    +sb("today","Today",nT)+sb("week","Last 7 days",nW)+sb("all","All time",nA);
+  /* An unreachable archive must SAY so here rather than let a short list read as
+     a complete one. */
+  if(HIST_STATE==="loading") head+=`<span class="dhint">reading the archive…</span>`;
+  if(HIST_STATE==="error")   head+=`<span class="dhint bad">Archive unavailable `
+    +`(${esc(HIST_ERR)}) — only the current board is shown, so older work is missing.</span>`;
+  head+=`</div>`;
+  b.insertAdjacentHTML("beforeend",head);
+
+  if(!recs.length){
+    b.insertAdjacentHTML("beforeend",'<div class="empty">'
+      +(FILT.q?'Nothing completed matches that search.':'Nothing completed in this range.')
+      +'</div>');
+    return;
+  }
+
+  const noDid=recs.filter(r=>!r.did).length;
+  if(noDid) b.insertAdjacentHTML("beforeend",
+    `<div class="dgap"><span class="nt">${noDid} of ${recs.length} have no note `
+    +`of what was done</span><span class="nn">Those rows record only that the card was `
+    +`closed. The note is what lets this answer "did I do that?" — it has to be `
+    +`captured at the moment you tick something off.</span></div>`);
+
+  const byCat={};
+  recs.forEach(r=>{const c=catOf(r.project); (byCat[c]=byCat[c]||[]).push(r);});
+
+  CAT_ORDER.forEach(c=>{
+    const arr=byCat[c]; if(!arr||!arr.length) return;
+    const op=dIsOpen(c);
+    b.insertAdjacentHTML("beforeend",
+      `<button class="dcat${op?" open":""}" onclick="dToggle('${c}')">`
+      +`<span class="di"></span><span class="dc">${CAT_LABEL[c]}</span>`
+      +`<span class="dn">${arr.length} done</span></button>`);
+    if(!op) return;
+    if(c==="GC"){
+      /* One level deeper for GC only — her words: "GC (then per project)".
+         Ordered by most recent work, not alphabetically: a plain sort puts
+         "104 Child" above "14 Guernsey" (string order on the street number),
+         and the job she is being asked about is almost always a recent one. */
+      const latest={};
+      arr.forEach(r=>{const p=r.project||"— no project —";
+        if(!latest[p]||String(r.at||"")>latest[p]) latest[p]=String(r.at||"");});
+      const projs=Object.keys(latest).sort((a,b)=>
+        latest[b].localeCompare(latest[a])||a.localeCompare(b));
+      projs.forEach(p=>{
+        const key="GC/"+p, po=dIsOpen(key);
+        const rows=arr.filter(r=>(r.project||"— no project —")===p);
+        b.insertAdjacentHTML("beforeend",
+          `<button class="dproj${po?" open":""}" `
+          +`onclick="dToggle('${encodeURIComponent(key)}')">`
+          +`<span class="di"></span><span class="dc">${esc(p)}</span>`
+          +`<span class="dn">${rows.length}</span></button>`);
+        if(po) b.insertAdjacentHTML("beforeend",dRows(rows));
+      });
+    } else {
+      b.insertAdjacentHTML("beforeend",dRows(arr));
+    }
+  });
+}
+
 function render(){
   renderViews(); renderSrcChips(); renderTiles(); renderFilterBar();
   const b=document.getElementById("board"); b.innerHTML="";
   const vis=visible();
-  if(!vis.length){
+  /* The Done view is exempt: it reads the archive too, so an empty current-day
+     board must not short-circuit into "nothing matches" while 33 archived items
+     sit one fetch away. */
+  if(!vis.length && VIEW!=="done"){
     if(VIEW==="claude"){
       b.innerHTML='<div class="empty">Nothing is queued for Claude.<br>'
         +'Pick <b>claude</b> in a card\'s assignee dropdown to hand it over — it gets '
@@ -783,7 +1100,7 @@ function render(){
     keys.forEach(k=>group(b,k==="hadassa"?"Me":k[0].toUpperCase()+k.slice(1),
       sortItems(vis.filter(i=>(cs(i.id).assignee||"hadassa")===k))));
   } else if(VIEW==="done"){
-    group(b,"Completed",sortItems(vis));
+    renderDone(b);
   } else {
     group(b,"Judged not needed — with your reason",sortItems(vis));
   }
@@ -1049,12 +1366,24 @@ function renderTiles(){
         claudeQ.length,claudeStale?"bad":"","focusView({view:'claude'})"):""}
     ${assigned?tile("Assigned to people",assigned,"","focusView({view:'people',openOnly:true,assignedAway:true})"):""}
     ${tile("Overdue",overdue,overdue?"bad":"","focusView({view:'board',openOnly:true,overdue:true})")}
-    ${tile("Done today",doneToday,"ok","focusView({view:'done'})")}
-    ${doneEarlier?tile("Done earlier",doneEarlier,"","focusView({view:'done'})"):""}
+    ${tile("Done today",doneToday,"ok","focusView({view:'done',doneScope:'today'})")}
+    ${doneEarlier?tile("Done earlier",doneEarlier,"","focusView({view:'done',doneScope:'all'})"):""}
     ${dropN?tile("Not needed",dropN,"","focusView({view:'dropped'})"):""}`;
   const c=2*Math.PI*16;
   document.getElementById("ringfg").setAttribute("stroke-dasharray",(pct/100*c)+" "+c);
   document.getElementById("ringtxt").textContent=pct+"%";
+  /* Masthead stats — reuses the variables above verbatim so the header can never
+     disagree with the tile beneath it. Urgent/overdue/waiting only appear when
+     non-zero: a row of zeros is noise, and she reads this line at a glance. */
+  const sl=document.getElementById("statline");
+  if(sl){
+    const seg=[`<span><b>${open.length}</b> open</span>`];
+    if(urgent)         seg.push(`<span class="sbad"><b>${urgent}</b> urgent</span>`);
+    if(overdue)        seg.push(`<span class="sbad"><b>${overdue}</b> overdue</span>`);
+    if(waitAll.length) seg.push(`<span><b>${waitAll.length}</b> waiting on someone</span>`);
+    seg.push(`<span class="sok"><b>${doneN}</b> done</span>`);
+    sl.innerHTML=seg.join('<span class="sdot">·</span>');
+  }
 }
 const tile=(k,v,cl,fn)=>`<div class="tile ${cl}" onclick="${fn}"><div class="k">${k}</div><div class="v">${v}</div></div>`;
 
@@ -1207,6 +1536,13 @@ function focusView(o){
   FILT.assignedAway = !!o.assignedAway;
   FILT.waitingDue   = !!o.waitingDue;
   FILT.lane         = o.lane || null;
+  /* The Done tiles are doorways into a scoped record, so they must set the scope
+     they counted. "Done earlier" opens All time deliberately: its own count is
+     on-board-only, while the view's scope chips carry real counts for all three
+     ranges — nothing is hidden, and the wider range is what she is after when
+     she clicks it. */
+  if(o.doneScope){ DONE_SCOPE=o.doneScope; DONE_SCOPE_AUTO=false;
+                   if(o.doneScope!=="today") loadHistory(); }
   if(o.view) VIEW=o.view;
   CURSOR=-1; syncChips(); render(); window.scrollTo({top:0,behavior:"smooth"});
 }
