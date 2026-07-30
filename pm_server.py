@@ -42,6 +42,11 @@ _CONTENT_MAP = {
     "links": "links", "draft": "draft", "pills": "pills",
     "unconfirmed": "unconfirmed", "isNew": "is_new", "moved": "moved",
     "age": "age", "due": "due",
+    # Sweep timestamps (2026-07-30). Collector output, so _CONTENT_MAP and not
+    # `clicks`. Needed because "By project" orders groups by MOST RECENT WORK —
+    # without these the comparator has nothing to compare and silently degrades
+    # to string order, which puts "104 Child" above "14 Guernsey".
+    "lastSeen": "last_seen", "firstSeen": "first_seen",
     # The split (2026-07-29) — what Claude already did vs what only she can do.
     # Must be here or the card renders without it and the whole point is lost.
     "claudeDone": "claude_done", "hadassaTodo": "hadassa_todo",
@@ -140,6 +145,12 @@ class Handler(BaseHTTPRequestHandler):
                 "items": items, "state": clicks,
                 "brief_date": state.get("brief_date"),
                 "updated_at": state.get("updated_at"),
+                # Sweep provenance. `updated_at` moves on any click of hers, so it
+                # answers "when was this file last written", NOT "how current is
+                # the information" — which is the only question the header asks.
+                "last_swept_at": state.get("last_swept_at"),
+                "last_swept_sources": state.get("last_swept_sources") or [],
+                "last_swept_evidence": state.get("last_swept_evidence") or {},
                 "stale_day": state.get("brief_date") != S._today(),
                 "today": S._today(),
                 "counts": S.counts(state),

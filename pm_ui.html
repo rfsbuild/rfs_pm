@@ -61,6 +61,17 @@ a{color:var(--brand-deep);}
 .statline .sbad b{color:var(--bad);}
 .statline .sok b{color:var(--ok);}
 .statline .sdot{color:var(--faint);}
+/* ── #5 (2026-07-30, hers) ── "Need the time in header too, so I know exactly
+   when it was updated and how up to date it is." Two facts, not one: the clock
+   time of the sweep AND the elapsed age, because "13:58" alone still makes her
+   do the subtraction. Ages through fresh -> aging -> stale so the colour does
+   the reading for her. */
+.sweptchip{font-size:11.5px;font-weight:650;padding:3px 9px;border-radius:20px;
+  background:var(--rule-soft);color:var(--muted);border:1px solid var(--rule);
+  white-space:nowrap;cursor:default;}
+.sweptchip.fresh{background:#eaf6ee;color:#1d6b3a;border-color:#bfe0ca;}
+.sweptchip.aging{background:#fdf4e3;color:#8a5a12;border-color:#eed9a8;}
+.sweptchip.stale{background:#fdecec;color:#96231f;border-color:#f2c4c1;}
 @media(max-width:640px){
   .mast{align-items:center;}
   .bigdate{font-size:19px;}
@@ -118,6 +129,21 @@ a{color:var(--brand-deep);}
 .dcat.open .di,.dproj.open .di{transform:rotate(90deg);border-left-color:var(--brand);}
 /* Informational, not an alarm: `nudgestrip` is styled red for work that needs
    chasing. "N have no note" is a statement about the record's completeness. */
+.drow{cursor:pointer;}
+.drow:hover{background:var(--brand-soft);}
+.drow .dopen{display:block;font-size:10px;font-weight:700;color:var(--faint);
+  text-transform:uppercase;letter-spacing:.04em;margin-top:2px;}
+.drow.xopen .dopen{color:var(--brand);}
+.dfull{margin:2px 0 12px 26px;}
+/* An archived card cannot be edited — its id is no longer in state, so every
+   control would POST into a 404 and look like it saved. Neutralised in CSS AND
+   with pointer-events, so nothing is merely visually discouraged. */
+.dfull.arch .crow,.dfull.arch .cbox{display:none;}
+.dfull.arch [contenteditable],.dfull.arch textarea,.dfull.arch input,
+.dfull.arch select,.dfull.arch button{pointer-events:none;opacity:.6;}
+.dfull.arch .card{border-style:dashed;}
+.archnote{font-size:11.5px;color:var(--muted);background:var(--rule-soft);
+  border-left:3px solid var(--faint);border-radius:6px;padding:7px 10px;margin-bottom:6px;}
 .dgap{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
   background:var(--rule-soft);border:1px solid var(--rule);
   border-left:3px solid var(--faint);border-radius:var(--radius);
@@ -173,6 +199,28 @@ a{color:var(--brand-deep);}
 .sec h2{margin:0;font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:750;}
 .sec .cnt{font-size:11px;color:var(--faint);font-weight:600;}
 .sec .line{flex:1;height:1px;background:var(--rule);}
+/* A collapsible section header is a control, so it has to look like one: pointer,
+   hover feedback, and a disclosure triangle drawn as a glyph pair (\u25b8/\u25be) at a
+   size where both render — the small-triangle codepoint reads as a stray dot in
+   the macOS system font at 12px, which is why the Done view uses CSS borders. */
+.sec.fold{cursor:pointer;user-select:none;margin-top:14px;}
+.sec.fold:hover h2{color:var(--ink);}
+.sec.fold:hover .line{background:#d9dcea;}
+/* Marker drawn as a CSS border triangle, NOT the \u25b8 glyph — this file already
+   documents (see .dcat .di) that U+25B8 reads as a stray dot in the macOS system
+   font. Same technique, same rotation, so both accordions behave identically. */
+.sec.fold .tw{flex:none;width:0;height:0;margin:0 4px 0 1px;
+  border-left:6px solid var(--muted);
+  border-top:4.5px solid transparent;border-bottom:4.5px solid transparent;
+  transition:transform .15s ease;}
+.sec.fold.on .tw{transform:rotate(90deg);border-left-color:var(--brand);}
+.sec.fold:hover .tw{border-left-color:var(--ink);}
+/* `noload`, NOT `empty` — `.empty` is an existing global (a dashed centred
+   "nothing here" placeholder) and reusing the name wrapped an idle person's
+   section header in a dashed box. An idle person is still worth showing, just
+   visibly quieter than a loaded one. */
+.sec.fold.noload h2{color:var(--faint);font-weight:650;}
+.sec.fold.noload .cnt{font-style:italic;}
 
 .card{background:var(--card);border:1px solid var(--rule);border-radius:var(--radius);
   margin-bottom:9px;box-shadow:var(--shadow);transition:.15s;position:relative;overflow:hidden;}
@@ -269,6 +317,17 @@ a{color:var(--brand-deep);}
 .cbox{margin-top:2px;flex:0 0 auto;}
 .cbox input{width:17px;height:17px;accent-color:var(--brand);cursor:pointer;}
 .ctitle{flex:1;min-width:0;}
+/* ── #7 (2026-07-30, hers) ── the pills ride the title's own line, pushed to the
+   opposite corner. `.titlerow` is the flex; the title keeps flex:1 so it still
+   wraps normally, and .tags stops being a block beneath it. Below 620px the
+   pills drop under the title instead of squeezing it to one word per line. */
+.titlerow{display:flex;align-items:flex-start;gap:12px;}
+.titlerow .subj{flex:1 1 auto;min-width:0;}
+.titlerow .tags{margin-top:1px;flex:0 1 auto;justify-content:flex-end;max-width:56%;}
+@media(max-width:620px){
+  .titlerow{flex-direction:column;gap:0;}
+  .titlerow .tags{max-width:100%;justify-content:flex-start;margin-top:7px;}
+}
 .subj{font-weight:650;font-size:14.5px;line-height:1.4;letter-spacing:-.005em;}
 .card.done .subj{text-decoration:line-through;color:var(--muted);}
 .subj[contenteditable="true"]:focus{outline:none;background:var(--brand-soft);border-radius:4px;
@@ -331,6 +390,37 @@ a{color:var(--brand-deep);}
 select.mini,input.mini{padding:4px 7px;}
 input[type=date].mini{color:var(--muted);}
 .detail{border-top:1px solid var(--rule-soft);padding:12px 14px;background:#fcfcfe;display:none;}
+/* ── COLLAPSED BY DEFAULT (2026-07-30, hers) ── "setting the entire card toggled by
+   default, so only the first lines are showing… a bit more clean visually and I'll
+   open them all whenever i want." Collapsed = the header row only: checkbox, title,
+   pills, meta. `meta` averages 47 chars across her open cards and `action` averages
+   119, which is why the meta line is the one that stays — it fits on the row she
+   drew, and the action does not.
+   Implemented as a single `.open` state that reveals the WHOLE body, merging the old
+   "▸ Details" toggle into it: two nested disclosure levels on the same card is one
+   click too many, and #8 shrinks the context to three lines anyway. */
+.card:not(.open) .act,
+.card:not(.open) .wbox,
+.card:not(.open) .foldbar,
+.card:not(.open) .foldwrap,
+.card:not(.open) .dismissbox,
+.card:not(.open) .resultbox,
+.card:not(.open) .notebox,
+.card:not(.open) .crow{display:none;}
+.card:not(.open) .chead{padding-bottom:11px;}
+/* The whole header row is the hit target, so a compact card opens where she
+   naturally clicks. Excluded targets are handled in JS, not CSS: the title is
+   contenteditable and the pills navigate. */
+.chead{cursor:pointer;}
+.ctw{flex:none;width:0;height:0;margin:6px 0 0 0;
+  border-left:6px solid var(--faint);
+  border-top:4.5px solid transparent;border-bottom:4.5px solid transparent;
+  transition:transform .15s ease;}
+.card.open .ctw{transform:rotate(90deg);border-left-color:var(--brand);}
+.card:hover .ctw{border-left-color:var(--muted);}
+/* A collapsed card that is mid-chase still has to look mid-chase. */
+.card:not(.open).nudge .chead::after{content:"needs a chase";font-size:10px;font-weight:700;
+  color:var(--bad);letter-spacing:.03em;text-transform:uppercase;align-self:center;flex:none;}
 .card.open .detail{display:block;}
 .detail h4{margin:0 0 5px;font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);}
 .detail p{margin:0 0 7px;font-size:13px;color:var(--body);line-height:1.55;}
@@ -452,6 +542,7 @@ kbd{background:var(--rule-soft);border:1px solid var(--rule);border-bottom-width
     <div class="mast-stats">
       <span class="statline" id="statline"></span>
       <span class="grow"></span>
+      <span class="sweptchip" id="sweptchip" title=""></span>
       <button class="chip ghost" id="roll-btn" style="display:none" onclick="rollForward()">Start new day →</button>
       <span class="datechip" id="datechip">—</span>
     </div>
@@ -744,9 +835,41 @@ function boot(){
     const rb=document.getElementById("roll-btn");
     rb.style.display=d.stale_day?"":"none";
     if(d.stale_day) rb.textContent="Start "+d.today+" →";
+    renderSwept(d);
     render(); setSave("saved");
   }).catch(e=>setSave("error",e.message));
 }
+/* ── #5 ── sweep freshness. Reads last_swept_at (when the DATA was gathered), never
+   updated_at — updated_at moves every time she ticks a box, so it would report a
+   board full of yesterday's email as "updated 1 min ago", which is the precise
+   false-confidence this chip exists to prevent. Says so plainly when it has no
+   sweep timestamp at all rather than rendering a comforting blank. */
+function renderSwept(d){
+  const el=document.getElementById("sweptchip"); if(!el)return;
+  const raw=d&&d.last_swept_at;
+  if(!raw){ el.className="sweptchip stale"; el.textContent="never swept";
+    el.title="No last_swept_at in state — this board has not been fed by a sweep.";
+    return; }
+  const t=new Date(raw);
+  if(isNaN(t)){ el.className="sweptchip stale"; el.textContent="sweep time unreadable";
+    el.title="last_swept_at could not be parsed: "+raw; return; }
+  const mins=Math.max(0,Math.round((Date.now()-t.getTime())/60000));
+  const ago = mins<1 ? "just now"
+            : mins<60 ? mins+" min ago"
+            : mins<1440 ? Math.floor(mins/60)+"h "+(mins%60)+"m ago"
+            : Math.floor(mins/1440)+"d ago";
+  const hhmm=t.toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit",hour12:false});
+  el.textContent="swept "+hhmm+" · "+ago;
+  el.className="sweptchip "+(mins<=90?"fresh":mins<=240?"aging":"stale");
+  const src=(d.last_swept_sources||[]);
+  el.title="Board data gathered "+t.toLocaleString()
+    +(src.length?("\nSources: "+src.join(", ")):"\nNo sources recorded")
+    +"\n\nThis is when the information was COLLECTED, not when the file was last written.";
+}
+/* Re-age the chip without a refetch so a tab left open all afternoon stops
+   claiming it is fresh. One minute is cheap and it is the whole point. */
+setInterval(()=>{ if(typeof META!=="undefined"&&META) renderSwept(META); },60000);
+
 function rollForward(){
   if(!confirm("Start a new day?\n\nCompleted items drop off the board, everything still open ages by a day, and anything deferred 3+ days moves to Urgent."))return;
   fetch("/api/roll",{method:"POST"}).then(r=>r.json()).then(()=>boot());
@@ -776,11 +899,20 @@ function visible(){
        "shouldn't them be as done as well and flagged once done that was Claude by
        my order". Seeing the finished ones is what makes the queue trustworthy. */
     if(VIEW==="claude" && !(forClaude(it.id)||doneBy(it.id)==="claude")) return false;
+    /* ── #4 exception (2026-07-30) ── "By person" DOES show waiting cards, and it is
+       the only main-board view that does. Her earlier rule — waiting work leaves the
+       board — is about HER day: it keeps the Open count to work she can move today.
+       But this view answers a different question, "what is on each of my team", and a
+       card waiting on Rafael is squarely on Rafael. Hiding it made his column read 1
+       when he has 2, i.e. the team view understated the load of the person it exists
+       to describe. The cards stay tagged 👤 waiting on … so the two are never
+       confused. Scoped to this view only; every other view is unchanged. */
     if(VIEW==="waiting" && !isWaiting(it.id)) return false;
     /* The "To chase now" tile lands here, so the tab renders exactly the count
        that tile claimed — not the whole waiting list with the urgent ones on top. */
     if(FILT.waitingDue && !(nudgeDue(it.id)||needsWho(it.id))) return false;
-    if(VIEW!=="waiting" && VIEW!=="done" && VIEW!=="dropped" && isWaiting(it.id)) return false;
+    if(VIEW!=="waiting" && VIEW!=="done" && VIEW!=="dropped"
+       && VIEW!=="people" && isWaiting(it.id)) return false;
     if(FILT.mine && s.assignee) return false;
     if(FILT.assignedAway && !(s.assignee && s.assignee!=="hadassa")) return false;
     if(FILT.overdue && !isOverdue(it)) return false;
@@ -892,13 +1024,15 @@ function doneRecords(scope){
   ITEMS.filter(i=>isDone(i.id)).forEach(i=>{
     const s=cs(i.id); seen.add(i.id);
     out.push({id:i.id,subject:i.subject,project:i.project,did:s.did,note:s.note,
-              by:s.done_by||"hadassa",at:String(s.done_at||"").slice(0,10),live:true});
+              by:s.done_by||"hadassa",at:String(s.done_at||"").slice(0,10),live:true,
+              item:i});
   });
   if(scope!=="today") HIST.forEach(r=>{
     if(!r||seen.has(r.id)) return; seen.add(r.id);
     out.push({id:r.id,subject:r.subject,project:r.project,did:r.did,note:r.note,
               by:r.done_by||"hadassa",
-              at:String(r.done_at||r.day||"").slice(0,10),live:false});
+              at:String(r.done_at||r.day||"").slice(0,10),live:false,
+              item:histToUi(r)});
   });
   const t=todayStr(), from=dayAhead(-6);
   return out.filter(r=>scope==="today"?r.at===t
@@ -916,10 +1050,53 @@ const dShortDate=iso=>{
   const m=M[parseInt(p[1],10)-1];
   return m?m+" "+parseInt(p[2],10):"—";
 };
+/* ── (2026-07-30, hers) ── "what if I want to go back to that card and check
+   anything related to context or whatever it was written in the previous form?"
+   The answer is that NOTHING was lost — `history/*.json` archives the WHOLE item
+   (ctx_sum, ctx_body, action, links, note): 24 of 33 archived cards still carry
+   their context, and the 9 that do not never had any. It was simply unreachable,
+   the same defect as the missing /api/history route.
+   So a done row opens into the REAL card, rendered by the same `card()` every
+   other view uses — not a second read-only renderer that would drift from it.
+   An ARCHIVED item is not in `ITEMS`, which is deliberate: every count and filter
+   iterates ITEMS, so seeding only `CLICK` cannot inflate a single badge. It is
+   also rendered read-only, because its controls would POST against an id the
+   server no longer has and fail silently. */
+const HIST_UI={};
+function histToUi(r){
+  if(HIST_UI[r.id]) return HIST_UI[r.id];
+  const it={id:r.id, source:r.source, project:r.project, lane:r.lane, kind:r.kind,
+    subject:r.subject, meta:r.meta, ctxSum:r.ctx_sum, ctxBody:r.ctx_body,
+    action:r.action, where:r.where, links:r.links, draft:r.draft, pills:r.pills,
+    unconfirmed:r.unconfirmed, isNew:false, moved:r.moved, age:r.age, due:r.due,
+    claudeDone:r.claude_done, hadassaTodo:r.hadassa_todo,
+    lastSeen:r.last_seen, firstSeen:r.first_seen, _archived:true};
+  /* Seed click-state so stat()/isDone()/wOf() read the archived truth rather
+     than inventing a fresh open card. */
+  CLICK[r.id]=Object.assign(cs(r.id),{
+    status:r.status||"done", done:true, done_at:r.done_at, done_by:r.done_by,
+    dismiss_reason:r.dismiss_reason, assignee:r.assignee, defer:r.defer,
+    deferDays:r.defer_days||0, note:r.note, did:r.did, project:r.project,
+    waiting:r.waiting, _archived:true});
+  HIST_UI[r.id]=it; return it;
+}
+let DEXP=new Set();
+function dExpand(id){
+  id=decodeURIComponent(id);
+  if(DEXP.has(id)){ DEXP.delete(id); OPEN.delete(id); }
+  /* Opens EXPANDED. She clicks a done row to read what it said; landing on a
+     collapsed card would make her click twice for the thing she asked for. */
+  else { DEXP.add(id); OPEN.add(id); }
+  render();
+}
 function dRows(rows){
   return rows.map(r=>{
     const who=r.by==="claude"?"Claude":(r.by==="hadassa"||!r.by?"you":r.by);
-    return `<div class="drow">`
+    const key=encodeURIComponent(r.id), isOpen=DEXP.has(r.id);
+    const hasCtx=!!(r.item && (r.item.ctxSum || (r.item.ctxBody||[]).length
+                   || r.item.action || (r.item.links||[]).length));
+    return `<div class="drow${isOpen?" xopen":""}" onclick="dExpand('${key}')"
+              title="${isOpen?"Hide the full card":"Open the full card — context, your action, links, notes"}">`
       +`<span class="dck">✓</span>`
       +`<div class="dbody">`
         +`<div class="dsub">${esc(r.subject||"(no subject)")}</div>`
@@ -928,8 +1105,21 @@ function dRows(rows){
         +(r.note?`<div class="dnote">Your note: ${esc(r.note)}</div>`:"")
       +`</div>`
       +`<span class="dmeta">${dShortDate(r.at)}`
-        +`<span class="dwho${r.by==="claude"?" cl":""}">${esc(who)}</span></span>`
-    +`</div>`;
+        +`<span class="dwho${r.by==="claude"?" cl":""}">${esc(who)}</span>`
+        +`<span class="dopen">${isOpen?"hide":(hasCtx?"open":"no context kept")}</span></span>`
+    +`</div>`
+    /* Rendered OUTSIDE the clickable row so clicks inside the card (a link, the
+       note) do not collapse it again. */
+    + (isOpen && r.item
+        ? `<div class="dfull${r.item._archived?" arch":""}">`
+          + (r.item._archived
+              ? `<div class="archnote">Archived from a previous day — read-only. `
+                + `This is exactly what the card held when it was closed.</div>`
+              : "")
+          + card(Object.assign({},r.item))
+          + `</div>`
+        : (isOpen ? `<div class="dfull"><div class="archnote">This record has no `
+                  + `stored card — only the completion line above.</div></div>` : ""));
   }).join("");
 }
 
@@ -1045,7 +1235,7 @@ function render(){
          Anything queued over a day shows red.</span>
        </div>`);
     if(q.length)   group(b,"Queued — waiting on Claude",q);
-    if(fin.length) group(b,"Done by Claude, at your order",fin);
+    if(fin.length) groupFold(b,"Done by Claude, at your order",fin);
     wire(); return;
   }
   if(VIEW==="waiting"){
@@ -1093,12 +1283,34 @@ function render(){
   } else if(VIEW==="board"){
     Object.keys(LANE_LABEL).forEach(l=>group(b,LANE_LABEL[l],sortItems(vis.filter(i=>lane(i)===l))));
   } else if(VIEW==="project"){
-    const keys=[...new Set(vis.map(i=>i.project||"— no project —"))].sort();
-    keys.forEach(k=>group(b,k,sortItems(vis.filter(i=>(i.project||"— no project —")===k))));
+    /* Ordered by most recent work, not alphabetically: a plain sort puts
+       "104 Child" above "14 Guernsey" on the street number as a string. */
+    const grp={};
+    vis.forEach(i=>{const k=i.project||"— no project —";(grp[k]=grp[k]||[]).push(i);});
+    Object.keys(grp).sort((a,b2)=>{
+      /* ISO-8601 strings compare correctly with < / >, so the group's recency is
+         the max of its items' lastSeen. Math.max would coerce these to NaN. */
+      const r=x=>grp[x].reduce((m,i)=>{const v=String(i.lastSeen||i.firstSeen||"");
+                                        return v>m?v:m;},"");
+      const ra=r(a), rb=r(b2);
+      /* A project with no timestamp at all sinks to the bottom rather than
+         floating to the top on an empty-string comparison. */
+      if(!ra&&!rb) return a.localeCompare(b2);
+      if(!ra) return 1;
+      if(!rb) return -1;
+      return rb.localeCompare(ra) || a.localeCompare(b2);
+    }).forEach(k=>groupFold(b,k,sortItems(grp[k])));
   } else if(VIEW==="people"){
-    const keys=[...new Set(vis.map(i=>cs(i.id).assignee||"hadassa"))].sort();
-    keys.forEach(k=>group(b,k==="hadassa"?"Me":k[0].toUpperCase()+k.slice(1),
-      sortItems(vis.filter(i=>(cs(i.id).assignee||"hadassa")===k))));
+    /* ── #4 (2026-07-30, hers) ── "should have all 4 of us showing even if not all
+       of us have current/pending tasks… from now on I'll be managing my entire
+       team so I need a full vision." Confirmed roster: her, Rafael, Alice,
+       Guilherme, Claude — which is exactly ASG, so there is no second list to
+       drift. Empty columns RENDER: "Guilherme has nothing" is the answer to
+       "who is free?", and a view that hides idle people cannot answer it. */
+    ASG.forEach(k=>groupFold(b,
+      k==="hadassa"?"Me":k[0].toUpperCase()+k.slice(1),
+      sortItems(vis.filter(i=>(cs(i.id).assignee||"hadassa")===k)),
+      {keepEmpty:true, emptyLabel:"nothing assigned"}));
   } else if(VIEW==="done"){
     renderDone(b);
   } else {
@@ -1112,6 +1324,34 @@ function group(b,title,arr){
   const openN=arr.filter(i=>stat(i.id)==="open").length;
   b.insertAdjacentHTML("beforeend",sec(title,openN+" open / "+arr.length));
   arr.forEach(it=>b.insertAdjacentHTML("beforeend",card(it)));
+}
+
+/* ── #3 (2026-07-30, hers) ── "should be toggled per project by default so I chose
+   what and when to open them." A collapsible group. Which ones she opened is kept
+   in localStorage keyed by GROUP TITLE, so it survives a refresh AND a re-sweep
+   that renumbers the items — an open set keyed by index would silently reopen the
+   wrong project. An EMPTY group still renders (see groupFold callers) because a
+   person with nothing on their plate is information in the By-person view. */
+let FOLD=(()=>{try{return new Set(JSON.parse(localStorage.getItem("pmfold")||"[]"));}
+               catch(e){return new Set();}})();
+const foldKey=t=>String(t);
+function toggleFold(t){
+  const k=foldKey(t); FOLD.has(k)?FOLD.delete(k):FOLD.add(k);
+  try{localStorage.setItem("pmfold",JSON.stringify([...FOLD]));}catch(e){}
+  render();
+}
+function groupFold(b,title,arr,opts){
+  opts=opts||{};
+  if(!arr.length && !opts.keepEmpty) return;
+  const openN=arr.filter(i=>stat(i.id)==="open").length;
+  const k=foldKey(title), isOpen=FOLD.has(k);
+  const cnt=arr.length?(openN+" open / "+arr.length):(opts.emptyLabel||"nothing open");
+  b.insertAdjacentHTML("beforeend",
+    `<div class="sec fold ${isOpen?"on":""} ${arr.length?"":"noload"}"
+       onclick="toggleFold(${JSON.stringify(title).replace(/"/g,"&quot;")})">
+       <span class="tw"></span>
+       <h2>${esc(title)}</h2><span class="cnt">${esc(cnt)}</span><span class="line"></span></div>`);
+  if(isOpen) arr.forEach(it=>b.insertAdjacentHTML("beforeend",card(it)));
 }
 
 function card(it){
@@ -1151,11 +1391,14 @@ function card(it){
 
   return `<div class="${cls}" id="c-${it.id}" data-id="${it.id}">
     <div class="chead">
+      <span class="ctw"></span>
       <span class="cbox"><input type="checkbox" ${done?"checked":""} ${drop?"disabled":""} data-done="${it.id}"></span>
       <div class="ctitle">
-        <div class="subj" contenteditable="true" data-subj="${it.id}">${esc(it.subject)}</div>
+        <div class="titlerow">
+          <div class="subj" contenteditable="true" data-subj="${it.id}">${esc(it.subject)}</div>
+          <div class="tags">${tags}</div>
+        </div>
         ${it.meta?`<div class="metaline">${esc(it.meta)}</div>`:""}
-        <div class="tags">${tags}</div>
       </div>
     </div>
     ${it.action?`<div class="act"><div class="lbl">Your action</div>
@@ -1167,7 +1410,7 @@ function card(it){
     ${s.claude_result?`<div class="resultbox"><div class="lbl">🤖 What Claude did</div>${esc(s.claude_result)}</div>`:""}
     ${s.note?`<div class="notebox"><div class="lbl">Your note</div>${esc(s.note)}</div>`:""}
     <div class="crow">
-      <button class="mini" data-toggle="${it.id}">${OPEN.has(it.id)?"▾ Less":"▸ Details"}</button>
+      <button class="mini" data-toggle="${it.id}">▾ Close card</button>
       <select class="mini" data-asg="${it.id}">
         ${ASG.map(a=>`<option value="${a}" ${((s.assignee||"hadassa")===a)?"selected":""}>${a==="hadassa"?"me":a}</option>`).join("")}
       </select>
@@ -1308,8 +1551,27 @@ function renderViews(){
     let n=visible().length;
     if(k==="today") n=visible().filter(i=>stat(i.id)==="open"
       && ["urgent","action"].includes(lane(i))).length;
+    /* ── #2 (2026-07-30, hers) ── "'With claude' is still showing 3 while only 1 is
+       still open." The tab's own filter is `forClaude(id) || doneBy(id)==="claude"`,
+       so the badge was counting 1 open + 2 already-finished. That number DID equal
+       the cards rendered — but every other badge means "work outstanding" (Today is
+       special-cased to open-only), so 3 read as three things to do. The badge now
+       counts the queue; the finished ones still render below, in their own section,
+       collapsed. Badge == the cards in the primary group, exactly. */
+    if(k==="claude") n=visible().filter(i=>inClaudeQueue(i.id)).length;
+    /* ── ONE RULE FOR EVERY BADGE (2026-07-30, her go-ahead) ── every tab's badge
+       counts OUTSTANDING work; only Done and Not-needed count what they hold,
+       because for those two "what it holds" IS the outstanding question. Before
+       this, Board/By-project/By-person badged done+open, so "48" on a board with
+       32 open read as 48 things to do — the same complaint she raised about the
+       Claude tab, present on three more tabs. */
+    else if(k!=="today" && k!=="done" && k!=="dropped")
+      n=visible().filter(i=>stat(i.id)==="open").length;
     VIEW=cur;
-    return `<button class="vtab ${VIEW===k?"on":""}" onclick="setView('${k}')">${label}<span class="n">${n}</span></button>`;
+    const tip=(k==="done"||k==="dropped") ? n+" item"+(n===1?"":"s")
+      : n+" still open — finished cards are shown too, but never counted here";
+    return `<button class="vtab ${VIEW===k?"on":""}" title="${tip}"
+      onclick="setView('${k}')">${label}<span class="n">${n}</span></button>`;
   }).join("");
 }
 function renderSrcChips(){
@@ -1393,6 +1655,16 @@ function wire(){
     const id=el.getAttribute("data-done"); pushUndo(id);
     setLocalDone(id,el.checked); save(id).then(()=>render());
     toast(el.checked?"Marked done":"Reopened");
+  });
+  /* ── the whole header row opens a collapsed card (2026-07-30, hers) ──
+     Excluded targets are the ones that already own the click: the checkbox, the
+     contenteditable subject (she edits titles inline — swallowing that click would
+     make the board read-only), the project pill (it navigates), and any control. */
+  document.querySelectorAll(".chead").forEach(el=>el.onclick=ev=>{
+    if(ev.target.closest("input,select,textarea,button,a,.prj,[contenteditable='true']")) return;
+    const id=el.closest(".card") && el.closest(".card").getAttribute("data-id");
+    if(!id) return;
+    OPEN.has(id)?OPEN.delete(id):OPEN.add(id); render();
   });
   document.querySelectorAll("[data-toggle]").forEach(el=>el.onclick=()=>{
     const id=el.getAttribute("data-toggle");
