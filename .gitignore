@@ -24,3 +24,10 @@ logs/
 __pycache__/
 .pytest_cache/
 ctx/
+
+# The raw transcript of the last sweep, kept on failure/timeout so a bad run is
+# debuggable instead of silent. It is the model's verbatim read of Gmail, Slack and
+# BuilderTrend, so a real run puts client names, amounts and Rafael's messages in it.
+# Today's copy happens to be 88 bytes; that is timing, not safety. Added 2026-08-03,
+# found untracked-but-not-ignored at the Monday re-ground -- same shape as history/.
+last_sweep_output.txt

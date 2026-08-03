@@ -44,9 +44,11 @@ Usage:
     python3 pm_sweep_run.py --dry-run       # print the prompt, write nothing
 """
 import argparse
+import datetime
 import json
 import os
 import re
+import time
 import subprocess
 import sys
 import tempfile
@@ -111,10 +113,41 @@ TIMEOUT_S = int(os.environ.get("PM_SWEEP_TIMEOUT", "1200"))
 # and an unbounded log on a job that fires 19×/day is its own problem.
 LOG_PATH = ROOT / "last_sweep_output.txt"
 
-OK_RE = {"slack": re.compile(r"SLACK_OK=(-?\d+)"),
-         "gmail": re.compile(r"GMAIL_OK=(-?\d+)")}
-CURSOR_RE = {"slack": re.compile(r"SLACK_CURSOR=(\S+)"),
-             "gmail": re.compile(r"GMAIL_CURSOR=(\S+)")}
+# ANCHORED to line starts, deliberately. An unanchored SLACK_OK=(-?\d+) is
+# satisfied by any *prose sentence* that happens to mention a count — which is
+# exactly what happened on 2026-07-30: run 3 wrote "Run 3's result: SLACK_OK=51
+# · GMAIL_OK=33, 23 items…" instead of the standalone marker lines STEP 5 asks
+# for, the counts matched out of the prose by luck, and no cursor was parsed at
+# all. The mirror risk is worse: a sentence containing SLACK_OK=0 would
+# fabricate a failure on a healthy run.
+OK_RE = {"slack": re.compile(r"^\s*SLACK_OK=(-?\d+)\s*$", re.M),
+         "gmail": re.compile(r"^\s*GMAIL_OK=(-?\d+)\s*$", re.M)}
+CURSOR_RE = {"slack": re.compile(r"^\s*SLACK_CURSOR=(\S+)\s*$", re.M),
+             "gmail": re.compile(r"^\s*GMAIL_CURSOR=(\S+)\s*$", re.M)}
+
+
+def _fallback_cursor(source, started_at):
+    """A watermark derived from the run's START — never its end.
+
+    Missing cursors are what make every run a COLD run: with no watermark the
+    prompt says "read today only", so the sweep re-reads the whole day across
+    12+ channels and costs ~12 minutes, 19× a day on the approved schedule.
+
+    Requiring the model to emit a cursor (the way counts are required) would
+    fix the slowness but reintroduce the 2026-07-30 run-2 failure mode: one
+    unmet formatting rule discarding a briefing that took 12 minutes to earn.
+    So counts stay a hard gate — a count is the *evidence a connector was
+    reached* — and a missing cursor instead falls back to this value.
+
+    START, not end, is the safe bound: the run read everything newer than the
+    old watermark up to whenever it looked, so anything that landed mid-run is
+    either already captured or will be re-read next time. Overlap is harmless
+    (the ingest dedupes); a gap would be silent data loss.
+    """
+    if source == "slack":
+        return "%.6f" % started_at
+    return datetime.datetime.fromtimestamp(
+        started_at, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 PROMPT = """\
 You are the RFS PM board sweep. Read what has arrived since the watermarks
@@ -146,6 +179,19 @@ REGISTRY (known sources — not a limit on what to read):
 STEP 3 — READ everything newer than the watermark, Slack and Gmail both.
 Where a message leaves "who does what" ambiguous, READ THE THREAD before
 deciding — a card with the wrong owner is worse than no card.
+
+STEP 3b — READ HER OWN SENDS. Query `label:SENT` — NOT `in:sent`, which
+returns empty and is not a statement about the mailbox. On 2026-07-31 the
+SENT label held 233 messages while `in:sent` returned nothing, and that one
+bad query was reported to her as "no outbound is confirmable from Gmail" in a
+PUBLISHED report. Her sends are how a chase gets CLOSED: a reply in a thread
+proves the outreach happened, and so does her own message in it.
+  KNOWN GAP, state it rather than paper over it: `label:SENT` covers only mail
+  sent FROM this account. When she replies from inside office@, billing@,
+  info@ or rfscarpentryservices@ (separate logins), that send is visible ONLY
+  if an RFS address is on To or CC. If a card turns on whether she sent
+  something and no send is visible, say "not visible from Gmail" — never
+  "she did not send it".
 Read TONE, not only imperatives: a worry about a client or a payment, a
 decision stated in passing, a number or name mentioned once, someone saying a
 thing is already done (that CLOSES a card), an unanswered question, a verbal
@@ -237,6 +283,9 @@ def run_sweep(path=None, dry_run=False, open_browser=False, wrap=False):
         return {"ok": True, "dry_run": True, "watermarks": wms,
                 "out": str(out), "prompt_chars": len(prompt), "prompt": prompt}
 
+    # Stamped BEFORE the call: this is the conservative fallback watermark for
+    # any source the run forgets to report a cursor for. See _fallback_cursor.
+    started_at = time.time()
     try:
         proc = subprocess.run([CLAUDE_BIN, "-p", prompt], capture_output=True,
                               text=True, timeout=TIMEOUT_S, cwd=str(ROOT))
@@ -312,9 +361,23 @@ def run_sweep(path=None, dry_run=False, open_browser=False, wrap=False):
     S.mark_swept({s: {"checked": counts[s],
                       "detail": "polled since %s" % (wms.get(s) or "start of day")}
                   for s in S.REQUIRED_SWEEP_SOURCES}, path=path)
-    for src, cur in cursors.items():
+    # Every required source gets a watermark, reported or derived — otherwise
+    # the next run is cold again and the 12-minute full-day re-read repeats.
+    derived = []
+    for src in S.REQUIRED_SWEEP_SOURCES:
+        cur = cursors.get(src)
+        if not cur:
+            cur = _fallback_cursor(src, started_at)
+            derived.append(src)
         if cur and cur != wms.get(src):
             S.advance_watermark(src, cur, path=path)
+    if derived:
+        # Loud, not silent: a derived watermark is correct but coarser than a
+        # real cursor, and a run that never emits markers is a prompt defect
+        # that should stay visible instead of being quietly absorbed.
+        res["cursor_derived"] = sorted(derived)
+        res["cursor_note"] = ("no cursor reported by %s — watermark set from the "
+                              "run's start time instead" % ", ".join(sorted(derived)))
 
     if open_browser:
         subprocess.run(["/usr/bin/open", BOARD_URL], check=False)
