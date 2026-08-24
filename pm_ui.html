@@ -793,7 +793,12 @@ let SPLIT_OPEN=new Set(), MAIL_OPEN=new Set();
    view holding exactly the items it counted — see focusView(). */
 const FILT={openOnly:false, mine:false, dueSoon:false, overdue:false,
             assignedAway:false, waitingDue:false, lane:null, src:new Set(), q:""};
-const LANE_LABEL={urgent:"🔴 Urgent",action:"🟠 Action Today",week:"🟡 This Week",
+/* Key ORDER matters: the board view groups by Object.keys(LANE_LABEL), so this
+   object — not pm_state.LANES — decides what she sees top to bottom. Keep the
+   two in the same order; `routine` sits second in both, deliberately below
+   urgent (it refills every morning and must never push a red item down). */
+const LANE_LABEL={urgent:"🔴 Urgent",routine:"🔁 Daily Routine",
+  action:"🟠 Action Today",week:"🟡 This Week",
   rafael:"Pending Rafael",guilherme:"Pending Gui",claude:"🤖 Claude",noise:"Noise / FYI"};
 /* ── LANE_LABEL keeps EVERY key; only the DROPDOWN shrinks (2026-07-30, hers) ──
    She picked "Pending Guilherme" on a card and it vanished from every view she
@@ -815,6 +820,15 @@ const LANE_LABEL={urgent:"🔴 Urgent",action:"🟠 Action Today",week:"🟡 Thi
    groups with no heading, and dropping them from pm_state.LANES would make
    normalize() silently reset every existing person-lane card to "action". */
 const LANE_PICK=["urgent","action","week","claude","noise"];
+/* The Today tab's lanes, in ONE place, because its badge and its body must be
+   computed by the same rule — the exact defect the comment at the grouping
+   site records (a tab badged "4" that rendered 11). They were two separate
+   ["urgent","action"] literals; adding `routine` to one and not the other
+   would have reproduced it on day one, so they now read the same constant.
+   NOT used by "the five that matter" strip, which stays urgent+action on
+   purpose: that strip ranks the day's real WORK, and a recurring checklist
+   item would crowd a live one out of five slots. */
+const TODAY_LANES=["urgent","routine","action"];
 /* Who a card can be parked with. Claude is deliberately absent: "🤖 With Claude"
    is a queue she checks, not a human she chases, and it has its own tab. */
 const WAIT_PICK=["rafael","guilherme","alice"];
@@ -1535,7 +1549,7 @@ function render(){
        the view it opens computed by different rules. Finished work keeps its
        record in the Done tab and in the % ring; it has no claim on the tab whose
        whole question is "what is left today". */
-    ["urgent","action"].forEach(l=>group(b,LANE_LABEL[l],
+    TODAY_LANES.forEach(l=>group(b,LANE_LABEL[l],
       sortItems(vis.filter(i=>lane(i)===l
                              && (stat(i.id)==="open" || askedStill(i.id))))));
   } else if(VIEW==="board"){
@@ -1990,7 +2004,7 @@ function renderViews(){
     VIEW=k;
     let n=visible().length;
     if(k==="today") n=visible().filter(i=>stat(i.id)==="open"
-      && ["urgent","action"].includes(lane(i))).length;
+      && TODAY_LANES.includes(lane(i))).length;
     /* ── #2 (2026-07-30, hers) ── "'With claude' is still showing 3 while only 1 is
        still open." The tab's own filter is `forClaude(id) || doneBy(id)==="claude"`,
        so the badge was counting 1 open + 2 already-finished. That number DID equal

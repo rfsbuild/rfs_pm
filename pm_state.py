@@ -51,9 +51,17 @@ HISTORY_DIR = ROOT / "history"
 SCHEMA = 1
 
 # Lanes, in display order. `claude` = she delegated it to me for the next session.
-LANES = ("urgent", "action", "week", "rafael", "guilherme", "claude", "noise")
+#
+# `routine` sits SECOND, never first: it refills with the same handful of cards
+# every single morning, so putting it above `urgent` would push a genuinely red
+# item below a checklist every day of the week. It is seeded by pm_routine.py
+# from the 08:00 job — never by the sweep, and never picked by hand (it is
+# deliberately absent from the UI's LANE_PICK), because a card parked there by
+# hand would be silently reset by the next morning's seed.
+LANES = ("urgent", "routine", "action", "week", "rafael", "guilherme", "claude", "noise")
 LANE_LABELS = {
     "urgent": "🔴 Urgent",
+    "routine": "🔁 Daily Routine",
     "action": "🟠 Action Today",
     "week": "🟡 This Week",
     "rafael": "Pending Rafael",
@@ -62,7 +70,14 @@ LANE_LABELS = {
     "noise": "Noise / FYI",
 }
 # Lanes that represent work she is personally on the hook for today.
-ACTIONABLE_LANES = ("urgent", "action", "week", "rafael", "guilherme", "claude")
+#
+# `routine` IS in here — the morning checklist is work she is on the hook for,
+# and leaving it out would mean ticking all four morning items moved the day's
+# progress ring by nothing. Checked before including it: counts() feeds only
+# the board UI's ring and tiles (pm_server, pm_app, pm_ui) — the FD/Rafael
+# daily report does not read it, so recurring chores cannot inflate anything
+# that leaves this machine.
+ACTIONABLE_LANES = ("urgent", "routine", "action", "week", "rafael", "guilherme", "claude")
 
 DEFER_REASONS = {
     "no-time": "⏰ No time today",
