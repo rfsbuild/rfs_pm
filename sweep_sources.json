@@ -48,6 +48,21 @@
         "id": "C0BL86PRFHS",
         "name": "#14-guernsey",
         "note": "Chris Heaton plumbing; Heaton-0003 CO $48,200.46 sat in Draft 33 days"
+      },
+      {
+        "id": "C0BLYRJ978Q",
+        "name": "#193-smith",
+        "note": "ADDED 2026-08-24. Created 2026-07-27 in the SAME BATCH as #financial (14:12-14:14, same four members) and flagged as unregistered by the sweep itself on BOTH 2026-07-30 and 2026-07-31 — the question sat open on the board 24 days. Verified 2026-08-24: EMPTY, only the four join events, 'no more messages available'. Registered anyway because the 2026-07-29 miss happened when a channel was unlisted AT THE MOMENT IT GOT ITS FIRST TRAFFIC; a zero-message read is cheap, discovering it late is not. Name follows the registered job-channel number pattern."
+      },
+      {
+        "id": "C0BLYRQJXEC",
+        "name": "#50-maureen",
+        "note": "ADDED 2026-08-24. Created 2026-07-27 in the SAME BATCH as #financial (14:12-14:14, same four members) and flagged as unregistered by the sweep itself on BOTH 2026-07-30 and 2026-07-31 — the question sat open on the board 24 days. Verified 2026-08-24: EMPTY, only the four join events, 'no more messages available'. Registered anyway because the 2026-07-29 miss happened when a channel was unlisted AT THE MOMENT IT GOT ITS FIRST TRAFFIC; a zero-message read is cheap, discovering it late is not. ⚠️ 50 Maureen Dr, Tewksbury is RFS's OWN registered address on the certificate-holder line, so this may be internal/property rather than a client job."
+      },
+      {
+        "id": "C0BL871DHB6",
+        "name": "#59-montclair",
+        "note": "ADDED 2026-08-24. Created 2026-07-27 in the SAME BATCH as #financial (14:12-14:14, same four members) and flagged as unregistered by the sweep itself on BOTH 2026-07-30 and 2026-07-31 — the question sat open on the board 24 days. Verified 2026-08-24: EMPTY, only the four join events, 'no more messages available'. Registered anyway because the 2026-07-29 miss happened when a channel was unlisted AT THE MOMENT IT GOT ITS FIRST TRAFFIC; a zero-message read is cheap, discovering it late is not. Name follows the registered job-channel number pattern."
       }
     ],
     "company": [
