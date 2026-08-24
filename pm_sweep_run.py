@@ -158,6 +158,11 @@ WATERMARKS — read only what is NEWER than these:
   slack: {slack_wm}
   gmail: {gmail_wm}
 
+THE BOARD AS IT STANDS — {board_count} cards, and this is the COMPLETE list,
+not a sample. Every id below is reproduced in full. `[done]` and `[dismissed]`
+are CLOSED cards: they are on this list so you do not raise them again.
+{board}
+
 STEP 1 — LOAD THE TOOLS FIRST. The Slack and Gmail connectors are DEFERRED
 tools: their schemas are NOT loaded and calling them directly fails with an
 InputValidationError. You MUST call ToolSearch before any connector call, e.g.
@@ -199,7 +204,14 @@ authorisation that will later hit payroll or the ledger.
 
 STEP 4 — WRITE {out} as JSON: {{"items": [ ... ]}}
 Each item follows the board contract:
-  id, subject, source (a SHORT token: "slack" / "gmail" / "bt"), lane, kind,
+  id — MATCH THE BOARD LIST ABOVE. If a card up there already covers this
+      thread, reuse that card's id EXACTLY, character for character. That id
+      is the ONLY thing that carries her status, note, did, assignee and
+      defer forward; a near-miss id (`prism_coi` where the board says
+      `s_prism_coi`) creates a SECOND card holding none of her work, and a
+      card she already closed comes back as fresh. Mint a new id only when
+      nothing on that list covers the thread.
+  subject, source (a SHORT token: "slack" / "gmail" / "bt"), lane, kind,
   project, meta, action
   ctx_happened / ctx_matters / ctx_needed — ONE SENTENCE EACH, max 160 chars.
       HAPPENED = the fact · MATTERS = the consequence · NEEDED = the ask.
@@ -215,7 +227,11 @@ Each item follows the board contract:
       produced 19 good items and every one was discarded because this line said
       only "MUST carry a draft" and left the shape to be guessed.
       `to` may be a name when the address is unknown ("Rafael", "Saba + MK").
-Only NEW or genuinely-changed items. Do not restate cards the board has.
+Only NEW or genuinely-changed items — the board list above is what "the board
+already has" means, so this is now checkable rather than guessed. A `[done]`
+or `[dismissed]` card is CLOSED: leave it alone unless something genuinely new
+happened in that thread, and if it did, reuse its id so the update lands ON
+the closed card instead of beside it as a duplicate.
 
 STEP 5 — REPORT these on their own lines, exactly, even when the count is 0:
   SLACK_OK=<slack messages you actually retrieved>
@@ -224,6 +240,43 @@ STEP 5 — REPORT these on their own lines, exactly, even when the count is 0:
   GMAIL_CURSOR=<newest gmail internalDate or ISO seen, or the watermark>
 A machine reads these lines.
 """
+
+
+def _board_text(state):
+    """Render the cards the board ALREADY has, so the sweep can see them.
+
+    STEP 4 has told the model "do not restate cards the board has" since the
+    day this ran — an instruction it had no information to obey, because
+    build_prompt passed only the watermarks, the registry and the output path.
+    The board itself was never in the prompt. So the model had to re-derive an
+    id from the subject on every run, and a near-miss — `prism_coi` today for
+    the `s_prism_coi` it wrote yesterday — mints a SECOND card for one thread.
+
+    That is not cosmetic. pm_ingest preserves HER_FIELDS (status, done_at,
+    did, note, assignee, defer) by MATCHING THE ID; a duplicate under a
+    different id inherits none of them. 36 of the 107 cards on the board are
+    done or dismissed, and a blind sweep can resurrect any of them as fresh
+    open work — her completed work silently undone.
+
+    CLOSED cards are listed too, deliberately: they are exactly the ones that
+    must not come back. Subjects are truncated for width; ids never are — the
+    id is the thing the model has to match, so it is reproduced in full.
+    """
+    items = (state or {}).get("items") or []
+    if not items:
+        return "  (the board is empty — every item you write is new)"
+    def _order(i):
+        st = i.get("status") or "open"
+        return (st != "open", st, i.get("id") or "")
+
+    rows = []
+    for it in sorted(items, key=_order):
+        subj = " ".join((it.get("subject") or "").split())
+        if len(subj) > 110:
+            subj = subj[:109] + "…"
+        rows.append("  [%-9s] %-28s %s"
+                    % (it.get("status") or "open", it.get("id") or "(no id)", subj))
+    return "\n".join(rows)
 
 
 def _registry_text():
@@ -264,7 +317,9 @@ def build_prompt(state):
     return wms, out, PROMPT.format(
         slack_wm=wms.get("slack") or "(none yet — read today only)",
         gmail_wm=wms.get("gmail") or "(none yet — read today only)",
-        registry=_registry_text(), out=out)
+        registry=_registry_text(), out=out,
+        board=_board_text(state),
+        board_count=len((state or {}).get("items") or []))
 
 
 def _fail(path, reason, sources):
