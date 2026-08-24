@@ -202,3 +202,41 @@ def test_the_ui_renders_the_lane_it_is_given():
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))
+
+
+def test_an_rt_card_rehomed_out_of_the_lane_survives_the_wipe(board, sources):
+    """A dated obligation must be able to ESCAPE the daily wipe.
+
+    The routine lane is a checklist that resets every morning. That is right
+    for "reconcile the bank" and wrong for "Petersen's certificate expires
+    8/29" — a deadline outlives the day whose plan file happened to mention
+    it. Before 2026-08-24 removal matched on the `rt_` prefix alone, so the
+    only way a plan item survived was for tomorrow's plan to restate it. Three
+    real obligations were one morning away from silent deletion.
+
+    Moving the card to a real lane is the escape hatch, so the wipe must not
+    follow it there.
+    """
+    RT.seed("2026-08-24", path=board)
+    assert "rt_payroll_hours_check" in _ids(board)
+
+    # She (or the sweep) re-homes it: this is a deadline, not a daily tick.
+    st, _ = S.load_state(board)
+    S.get_item(st, "rt_payroll_hours_check")["lane"] = "action"
+    S.save_state(st, board)
+
+    RT.seed("2026-08-25", path=board)          # tomorrow's plan omits it
+    assert "rt_payroll_hours_check" in _ids(board), (
+        "an rt_ card re-homed to `action` was deleted by the morning wipe — a "
+        "dated obligation has no way to survive, which is how a COI expiry "
+        "gets silently destroyed")
+    assert _item(board, "rt_payroll_hours_check")["lane"] == "action", (
+        "the wipe dragged a re-homed card back into the routine lane")
+
+
+def test_a_card_left_in_the_lane_is_still_wiped(board, sources):
+    """The escape hatch must not become a hole in the anti-bloat guard."""
+    RT.seed("2026-08-24", path=board)
+    RT.seed("2026-08-25", path=board)
+    assert "rt_payroll_hours_check" not in _ids(board), (
+        "the lane guard weakened the anti-bloat property it was added beside")

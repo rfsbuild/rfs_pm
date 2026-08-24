@@ -149,10 +149,23 @@ def seed(day=None, path=None, dry_run=False):
 
     existing = {it["id"]: it for it in state["items"]
                 if it.get("id", "").startswith(PREFIX)}
-    # Only cards THIS module minted are ever removed. A routine-lane card
-    # without the prefix was put there by something else and is not ours to
-    # delete.
-    stale = [i for i in existing if i not in wanted_ids]
+    # Removal needs BOTH guards, not one:
+    #   * the PREFIX — a routine-lane card without it was put there by
+    #     something else and is not ours to delete;
+    #   * the LANE — an `rt_` card that has been re-homed to action/urgent is
+    #     a persistent obligation someone deliberately moved OUT of the daily
+    #     wipe. The reset must not follow it there.
+    # The lane guard was added 2026-08-24. A prefix-only test was scheduled to
+    # delete three DATED obligations at 08:00 on 8/25, purely because
+    # plan-2026-08-25.json does not restate them: rt_petersen_coi (certificate
+    # expires 8/29), rt_jaar_realty_chase, and rt_andersen_paperwork_7 (seven
+    # chases, every one blocking a payment INTO RFS). The day's plan file is
+    # the wrong home for a deadline that outlives the day, so the fix is an
+    # escape hatch — re-home the card and the wipe leaves it alone — not a
+    # carry-forward, which would make the lane the archive this module's
+    # docstring exists to prevent.
+    stale = [i for i, it in existing.items()
+             if i not in wanted_ids and it.get("lane") == LANE]
 
     res = {"ok": True, "day": day, "added": [], "reset": [], "removed": stale,
            "kept_notes": [], "dry_run": bool(dry_run)}
