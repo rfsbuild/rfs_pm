@@ -1,6 +1,6 @@
 {
   "version": "1",
-  "updated": "2026-07-29",
+  "updated": "2026-08-24",
   "_why": "Every source a PM sweep must read, with its live id. Exists because a sweep at 08:40 on 2026-07-29 was believed complete and missed six task assignments — #99-concord had been created at 09:13 that morning and nothing prompted a look for unknown channels. Refresh by listing channels live and running --check-new against this file.",
   "slack": {
     "jobs": [
@@ -60,6 +60,11 @@
         "id": "C0BL01ACTNX",
         "name": "#rba",
         "note": "LSWP course for Gerson + Samuel; Andersen extra-labor approvals"
+      },
+      {
+        "id": "C0BL875L30U",
+        "name": "#financial",
+        "note": "🔴 ADDED 2026-08-24. Created 2026-07-27 — it existed TWO DAYS BEFORE this registry was written and was omitted anyway, so the sweep never read it. It carries Rafael's payment AUTHORISATIONS, Alice's payment requests, and payroll-rate questions: on 2026-08-24 alone it held a live 1.5x-Saturday proposal the day before payroll, a $7,486.50 countertop awaiting Rafael, a $250 off-hour inspection, and an unrecognised MGP invoice. HIGHEST-VALUE TEXT CHANNEL for the FM role — read it every sweep."
       }
     ],
     "dms": [
@@ -109,6 +114,10 @@
     {
       "name": "Google Calendar",
       "note": "Hadassa's convention, stated 2026-07-29 12:58: an event shown YELLOW with 'TBC' means awaiting confirmation — the slot is held for follow-up, not agreed"
+    },
+    {
+      "name": "#receipts (Slack C0BMJNXG82K, PRIVATE, created 2026-08-04)",
+      "note": "Deliberately NOT a sweep text source. Verified 2026-08-24: every message is an IMAGE from Rafael with EMPTY text (12 in the 10 days 8/14-8/24), so a text sweep yields nothing from it 11x a day. Listed here so it is KNOWN, not swept. 🔴 GAP: these photos are the evidence for card-transaction categorisation and Rafael's vacation spend, and nothing currently reads them — that needs image handling, not a registry row."
     }
   ],
   "contract": [
