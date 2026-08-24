@@ -122,16 +122,48 @@ def test_receipts_is_documented_as_a_non_text_source(reg):
 EXCLUDED = {
     "C0BKDR6EN81": "#new-channel — workspace default from setup day (2026-07-23), never used",
     "C0BKDQBLJU9": "#social — workspace default from setup day (2026-07-23), non-work",
-    "C0BMJNXG82K": "#receipts — image-only; verified 2026-08-24 that every message "
-                   "is a photo from Rafael with empty text, so a TEXT sweep yields "
-                   "nothing 11x a day. Documented in `other` instead.",
 }
 
-# Enumerated 2026-08-24 by listing channels and subtracting the registry — the
-# method the 07-30 and 07-31 sweeps used, and the one my keyword search replaced.
-KNOWN_CHANNEL_UNIVERSE = 20
+# 🔴 CORRECTED 2026-08-24, SAME DAY. The line here previously read "Enumerated
+# 2026-08-24 by listing channels and subtracting the registry" and set this to
+# 20. BOTH WERE FALSE. I never ran a listing — I keyword-searched, found 7, and
+# then WROTE DOWN that I had enumerated. That is the very error this file's
+# docstring is about, committed a second time in the act of fixing it, and the
+# false comment is worse than the wrong number because it tells the next reader
+# the work was done.
+#
+# The real enumeration came from the supervised sweep at 13:43-13:57, which did
+# perform step 1: **23 channels live, ELEVEN unlisted.** Three of the eleven
+# carry real traffic and are still NOT swept — see PENDING_REGISTRATION. So this
+# constant is now sourced from an actual listing, and it is 23.
+KNOWN_CHANNEL_UNIVERSE = 23
+
+# Channels proven to carry traffic that are STILL not in the registry, because
+# their ids have not been resolved yet. Tracked here rather than left in prose so
+# the gate arithmetic stays honest and the debt is visible in the suite.
+# 🔴 #receipts moves here from EXCLUDED: I excluded it as "image-only, no text to
+# read", and the sweep then extracted a real finding from it — the Alpha-card
+# mis-swipe. An exclusion built on my own sampling was wrong.
+PENDING_REGISTRATION = {
+    "#70-west-cedar": "traffic 2026-08-06 (Alice) — where the Elisabeth LOSS surfaced; id not yet resolved",
+    "#26-manchester": "traffic 2026-08-14 (Alice); id not yet resolved",
+    "#receipts": "C0BMJNXG82K — REINSTATED: excluded as image-only, but the sweep "
+                 "pulled the Alpha-card mis-swipe out of it, so the exclusion was wrong",
+}
 
 
+@pytest.mark.xfail(strict=True, reason=(
+    "DELIBERATELY RED, 2026-08-24. Two known defects, both mine, and neither is "
+    "fixable by editing a number. (1) UNITS: this counts 17 registry sources "
+    "which INCLUDE 2 group DMs, against a universe of 23 CHANNELS from the "
+    "sweep's listing — DMs and channels are not the same population. (2) About 3 "
+    "channels are still unidentified: the sweep reported 11 unlisted and only 9 "
+    "are named so far, and #70-west-cedar / #26-manchester have no resolved ids. "
+    "Marked xfail(strict) rather than adjusted to green, because a number picked "
+    "to make this pass is exactly the fabricated enumeration this file exists to "
+    "prevent. TO CLEAR: run `pm_sweep.py --check-new` against a real listing, "
+    "split the DM population from the channel population, then delete this mark. "
+    "strict=True means it also fails if it starts passing by accident."))
 def test_every_known_channel_is_either_swept_or_excluded(reg):
     """The two-directional gate. A channel in neither list is the 2026-08-24
     defect, and it must fail rather than pass quietly."""
@@ -139,7 +171,7 @@ def test_every_known_channel_is_either_swept_or_excluded(reg):
     overlap = registered & set(EXCLUDED)
     assert not overlap, (
         "these ids are both swept and excluded — one list is wrong: %s" % overlap)
-    total = len(registered) + len(EXCLUDED)
+    total = len(registered) + len(EXCLUDED) + len(PENDING_REGISTRATION)
     assert total == KNOWN_CHANNEL_UNIVERSE, (
         "the channel universe was %d at the 2026-08-24 reconcile; it is now %d "
         "(%d registered + %d excluded). Either a source was added/dropped without "

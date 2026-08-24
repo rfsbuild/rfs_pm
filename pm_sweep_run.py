@@ -211,8 +211,15 @@ Each item follows the board contract:
       `s_prism_coi`) creates a SECOND card holding none of her work, and a
       card she already closed comes back as fresh. Mint a new id only when
       nothing on that list covers the thread.
-  subject, source (a SHORT token: "slack" / "gmail" / "bt"), lane, kind,
+  subject, source (a SHORT token: "slack" / "gmail" / "bt"), kind,
   project, meta, action
+  lane — MUST be one of these EXACT strings. There is no other valid value,
+      pm_ingest validates every item against this list, and ONE bad lane
+      REJECTS THE ENTIRE BRIEFING — every other item with it. Do not invent a
+      lane that describes the topic ("money", "client", "ops", "risk"): a lane
+      is WHO ACTS NEXT and WHEN, not what the item is about. Put the topic in
+      `kind` or `project` instead.
+{lanes}
   ctx_happened / ctx_matters / ctx_needed — ONE SENTENCE EACH, max 160 chars.
       HAPPENED = the fact · MATTERS = the consequence · NEEDED = the ask.
       The verbatim text goes in ctx_body, NOT in these three.
@@ -311,6 +318,44 @@ def _parse_markers(text):
     return counts, cursors, sorted(missing)
 
 
+# ── the lane vocabulary, rendered FROM pm_state.LANES ─────────────────────
+# 2026-08-24: the prompt never stated the valid lanes. A 14m45s run that
+# retrieved 320 Slack messages and 158 Gmail threads produced 30 items — and
+# ALL THIRTY were discarded, because the model reasonably invented topical
+# lanes (money x10, client x7, ops x7, process x3, compliance x2, risk x1) and
+# validation is all-or-nothing. Zero of thirty used a real lane. It could not
+# have guessed them: `grep -c urgent pm_sweep_run.py` was 0.
+#
+# This is the 2026-07-30 draft-shape failure in a different field — that one
+# discarded 19 good items because the contract said "MUST carry a draft" and
+# left the shape to be guessed. The shape got fixed; the LANE vocabulary was
+# left implicit. Same defect, next field over.
+#
+# Rendered from S.LANES rather than typed out, because a hardcoded list would
+# already be stale: `routine` was added TODAY. The assert is the load-bearing
+# part — adding a lane to pm_state without describing it here fails loudly at
+# build time instead of quietly shipping a prompt that omits it.
+LANE_HELP = {
+    "urgent":    "she must act TODAY — money at risk, or a deadline inside 24h",
+    "routine":   "DO NOT USE. Owned by pm_routine.py, which mints only `rt_` ids "
+                 "and resets them every morning; a sweep card here is wiped daily",
+    "action":    "hers to do, but not today-or-else",
+    "week":      "hers, this week — no fixed deadline",
+    "rafael":    "waiting on RAFAEL to act or answer",
+    "guilherme": "waiting on GUILHERME to act or answer",
+    "claude":    "Claude can finish it without her — research, drafting, a lookup",
+    "noise":     "she should SEE it, but nothing is owed by anyone",
+}
+
+
+def _lanes_text():
+    missing = [ln for ln in S.LANES if ln not in LANE_HELP]
+    assert not missing, (
+        "pm_state.LANES gained %s with no LANE_HELP entry — the sweep prompt "
+        "would omit it and the model could not use it" % (missing,))
+    return "\n".join("        %-11s — %s" % (ln, LANE_HELP[ln]) for ln in S.LANES)
+
+
 def build_prompt(state):
     wms = {s: S.get_watermark(state, s) or "" for s in S.REQUIRED_SWEEP_SOURCES}
     out = Path(tempfile.gettempdir()) / "pm_sweep_briefing.json"
@@ -318,7 +363,7 @@ def build_prompt(state):
         slack_wm=wms.get("slack") or "(none yet — read today only)",
         gmail_wm=wms.get("gmail") or "(none yet — read today only)",
         registry=_registry_text(), out=out,
-        board=_board_text(state),
+        board=_board_text(state), lanes=_lanes_text(),
         board_count=len((state or {}).get("items") or []))
 
 
