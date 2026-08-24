@@ -545,7 +545,8 @@ def main():
     # and needed her word), so the day's report generated stamped 2026-07-29.
     # Reporting on today must not require mutating her board first.
     ap.add_argument("--day", help="the day this report covers (YYYY-MM-DD); "
-                                  "defaults to the board's brief_date")
+                                  "defaults to TODAY (never the board's "
+                                  "brief_date — see the note at the day= line)")
     a = ap.parse_args()
 
     st, status = S.load_state()
@@ -573,7 +574,16 @@ def main():
         print("WARNING: %s — generating with a stale banner." % reason, file=sys.stderr)
 
     d, err = load_dash()
-    day = a.day or st.get("brief_date") or S._today()
+    # 2026-08-24: `brief_date` REMOVED from this fallback chain. The comment on
+    # --day above already says brief_date answers "has the board been rolled?",
+    # not "which day does this report cover?" — but it was still the default
+    # here, so the two questions stayed coupled where it actually mattered.
+    # The board's brief_date has read 2026-07-29 since the day-roll last ran
+    # (once, ever), so any run without an explicit --day produced a report
+    # DATED AND SCOPED TO JULY 29 — and these reports go to FD and Rafael.
+    # A stale watermark must never outrank today's date; if the caller does not
+    # say which day it wants, the answer is today.
+    day = a.day or S._today()
     out = a.out or (DEFAULT_OUT % day)
     os.makedirs(os.path.dirname(out), exist_ok=True)
 
