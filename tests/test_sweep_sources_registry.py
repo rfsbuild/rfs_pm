@@ -98,6 +98,67 @@ def test_receipts_is_documented_as_a_non_text_source(reg):
         "stated, so the gap stays visible instead of looking like an oversight")
 
 
+# ── the CLOSED WORLD, and why this is the load-bearing test in this file ──
+# Every other test here checks that something PRESENT is correct. None of them
+# can see a channel that EXISTS IN SLACK and is in no list at all — which is the
+# actual defect of 2026-08-24: `#financial` was absent, and the two tests above
+# would have passed a registry that was missing it plus three job channels.
+#
+# The miss happened because a SET was proved with keyword searches
+# (slack_search_channels "financial", then "receipts"). That can only return
+# names already guessed, so it found 2 of 7. The registry's own contract already
+# names the correct method — LIST every channel, then SUBTRACT the registry —
+# and `pm_sweep.py --check-new` implements it. Nobody ran it for 24 days.
+#
+# So this fixes the DIRECTION of the check: every channel known to exist must be
+# in exactly one of two lists — swept, or consciously excluded with a reason. A
+# newly discovered channel then has nowhere to sit silently; it fails this test
+# until a human decides which list it belongs in.
+#
+# HOW TO REFRESH (the step that was skipped):
+#   python3 pm_sweep.py --check-new "$(comma-separated live channel ids)"
+# Feed it a real listing, not a search. Anything it reports as unknown goes into
+# EXCLUDED with a note or into sweep_sources.json.
+EXCLUDED = {
+    "C0BKDR6EN81": "#new-channel — workspace default from setup day (2026-07-23), never used",
+    "C0BKDQBLJU9": "#social — workspace default from setup day (2026-07-23), non-work",
+    "C0BMJNXG82K": "#receipts — image-only; verified 2026-08-24 that every message "
+                   "is a photo from Rafael with empty text, so a TEXT sweep yields "
+                   "nothing 11x a day. Documented in `other` instead.",
+}
+
+# Enumerated 2026-08-24 by listing channels and subtracting the registry — the
+# method the 07-30 and 07-31 sweeps used, and the one my keyword search replaced.
+KNOWN_CHANNEL_UNIVERSE = 20
+
+
+def test_every_known_channel_is_either_swept_or_excluded(reg):
+    """The two-directional gate. A channel in neither list is the 2026-08-24
+    defect, and it must fail rather than pass quietly."""
+    registered = {c["id"] for c in _slack_sources(reg)}
+    overlap = registered & set(EXCLUDED)
+    assert not overlap, (
+        "these ids are both swept and excluded — one list is wrong: %s" % overlap)
+    total = len(registered) + len(EXCLUDED)
+    assert total == KNOWN_CHANNEL_UNIVERSE, (
+        "the channel universe was %d at the 2026-08-24 reconcile; it is now %d "
+        "(%d registered + %d excluded). Either a source was added/dropped without "
+        "updating KNOWN_CHANNEL_UNIVERSE, or a channel is unaccounted for. Re-run "
+        "`python3 pm_sweep.py --check-new <live ids>` against a REAL channel "
+        "listing — not a keyword search, which is what missed 5 of 7 last time."
+        % (KNOWN_CHANNEL_UNIVERSE, total, len(registered), len(EXCLUDED)))
+
+
+def test_exclusions_each_carry_a_reason(reg):
+    """An exclusion with no reason is indistinguishable from an oversight, and
+    becomes permanent because nobody can tell it was a decision."""
+    for cid, reason in EXCLUDED.items():
+        assert cid.startswith("C"), "bad excluded id: %r" % cid
+        assert len(reason) > 30, (
+            "exclusion %s has no real reason — say WHY it is not swept, or the "
+            "next reader cannot tell a decision from a miss" % cid)
+
+
 def test_registry_records_when_it_was_last_refreshed(reg):
     """The 28-day drift was invisible partly because nothing forced this field
     to move when sources changed."""
