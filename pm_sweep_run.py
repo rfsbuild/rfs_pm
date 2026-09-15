@@ -202,8 +202,30 @@ decision stated in passing, a number or name mentioned once, someone saying a
 thing is already done (that CLOSES a card), an unanswered question, a verbal
 authorisation that will later hit payroll or the ledger.
 
-STEP 4 — WRITE {out} as JSON: {{"items": [ ... ]}}
-Each item follows the board contract:
+STEP 4 — WRITE {out} as JSON: {{"items": [ ... ], "finance": [ ... ]}}
+
+STEP 4a — ROUTE FINANCE OUT OF THE BOARD (her ruling, 2026-08-28). An item is
+FINANCE when her next action is PAY / RECORD / RECONCILE / CHASE MONEY:
+BuilderTrend "sent you a payment" receipts, invoices payable or receivable,
+bank/card/loan/statement notices, payroll matters, insurance premiums and COI
+expiries, credit applications, Andersen remittance or chargeback threads.
+Finance items go in the "finance" list, NOT in "items" — the 2026-08-24 sweep
+died inventing a `money` lane for exactly these; the finance list is where
+they belong. When one thread is genuinely both (a sub emails an invoice inside
+a scheduling thread), the money half is a finance entry and the work half is a
+board card; give both the same key so they cross-reference.
+Each finance entry:
+  key — short stable slug (vendor + invoice/date, e.g. "bt_teresa_3483_0827")
+  subject — one line, the dollar figure in it when the message states one
+  action — HER next step ("record it", "expect it in the account Aug 29")
+  amount — the NUMBER COPIED from the message, or null. NEVER estimate one.
+  urgent — true only for money at risk or a deadline inside 48h
+  detail — one sentence of context
+  source_ref — the gmail thread id or slack ts it came from
+These are LEADS for the financial dashboard, not ledger entries — the bank
+reconcile stays the only thing that moves a balance.
+
+Each board item in "items" follows the board contract:
   id — MATCH THE BOARD LIST ABOVE. If a card up there already covers this
       thread, reuse that card's id EXACTLY, character for character. That id
       is the ONLY thing that carries her status, note, did, assignee and
@@ -372,6 +394,87 @@ def _fail(path, reason, sources):
     return {"ok": False, "reason": reason, "sources": sources}
 
 
+# ── the finance route (her ruling 2026-08-28: one sweep, one router, two sinks) ──
+# Finance-classified leads land in the financial dashboard's intake file, which
+# needs_you.build_feed() reads into Today's cards. Deliberately ASYMMETRIC with
+# pm_ingest: the board briefing stays all-or-nothing (its contract), but a
+# malformed finance LEAD is dropped-and-recorded per item — the 2026-07-30 and
+# 2026-08-24 failures both destroyed 12-minute runs over one shape defect, and
+# a lead list must never re-create that blast radius.
+FIN_INTAKE = Path(os.environ.get(
+    "PM_FIN_INTAKE", "/Users/Hadassa/rfs_dashboard/finance_intake.json"))
+_FIN_REQUIRED = ("key", "subject", "action")
+
+
+def route_finance(fin_items, path=FIN_INTAKE, now=None):
+    """Validate per item and upsert by key into the finance intake file.
+
+    Existing rows keep their `consumed` flag (Claude flips it at the session
+    reads); re-seen keys bump last_seen and refresh content. Atomic flock +
+    tmp + os.replace, same pattern as needs_you_state.
+    """
+    import fcntl
+    stamp = (now or datetime.datetime.now().astimezone()).isoformat(timespec="seconds")
+    good, dropped = [], []
+    seen_keys = set()
+    for i, r in enumerate(fin_items or []):
+        if not isinstance(r, dict):
+            dropped.append("item[%d] is not an object" % i)
+            continue
+        missing = [k for k in _FIN_REQUIRED if not str(r.get(k) or "").strip()]
+        if missing:
+            dropped.append("item[%d] (%s) missing %s"
+                           % (i, r.get("key") or "?", "+".join(missing)))
+            continue
+        amt = r.get("amount")
+        if amt is not None and not isinstance(amt, (int, float)):
+            dropped.append("item[%d] (%s) amount is %r — number or null only"
+                           % (i, r["key"], amt))
+            continue
+        key = str(r["key"]).strip()
+        if key in seen_keys:
+            dropped.append("item[%d] duplicate key %s in one briefing" % (i, key))
+            continue
+        seen_keys.add(key)
+        good.append({"key": key, "subject": str(r["subject"]).strip(),
+                     "action": str(r["action"]).strip(),
+                     "amount": float(amt) if amt is not None else None,
+                     "urgent": bool(r.get("urgent")),
+                     "detail": str(r.get("detail") or "").strip(),
+                     "source_ref": str(r.get("source_ref") or "").strip()})
+    if not good and not dropped:
+        return {"routed": 0, "dropped": []}
+    lock_path = str(path) + ".lock"
+    with open(lock_path, "a+") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        try:
+            try:
+                data = json.loads(Path(path).read_text())
+            except (FileNotFoundError, json.JSONDecodeError):
+                data = {"_schema": "finance_intake v1", "items": []}
+            by_key = {it["key"]: it for it in data.get("items", [])}
+            for g in good:
+                old = by_key.get(g["key"])
+                if old:
+                    old.update(g)                      # refresh content
+                    old["last_seen"] = stamp           # consumed flag survives
+                else:
+                    g["first_seen"] = g["last_seen"] = stamp
+                    g["consumed"] = False
+                    by_key[g["key"]] = g
+            data["items"] = list(by_key.values())
+            data["updated_at"] = stamp
+            tmp = str(path) + ".tmp"
+            with open(tmp, "w") as fh:
+                json.dump(data, fh, indent=1, ensure_ascii=False)
+                fh.flush()
+                os.fsync(fh.fileno())
+            os.replace(tmp, str(path))
+        finally:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+    return {"routed": len(good), "dropped": dropped}
+
+
 def run_sweep(path=None, dry_run=False, open_browser=False, wrap=False):
     path = path or S.STATE_PATH
     state, status = S.load_state(path)
@@ -430,15 +533,24 @@ def run_sweep(path=None, dry_run=False, open_browser=False, wrap=False):
         return _fail(path, "a required source returned nothing: %s"
                      % ", ".join(dead), dead)
 
-    items = []
+    items, fin_raw = [], []
     if out.exists():
         try:
-            items = (json.loads(out.read_text()) or {}).get("items") or []
+            _data = json.loads(out.read_text()) or {}
+            items = _data.get("items") or []
+            fin_raw = _data.get("finance") or []
         except Exception as exc:
             return _fail(path, "the briefing file was unreadable: %s" % exc, [])
 
     res = {"ok": True, "counts": counts, "ingested": 0, "trimmed": [],
            "wrap": bool(wrap)}
+    if fin_raw:
+        # Routed BEFORE the board ingest on purpose: a board-validation refusal
+        # must not throw away finance leads that already validated per-item.
+        _fin = route_finance(fin_raw)
+        res["finance_routed"] = _fin["routed"]
+        if _fin["dropped"]:
+            res["finance_dropped"] = _fin["dropped"]
     if items:
         try:
             got = I.ingest(items, path=path)

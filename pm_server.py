@@ -24,14 +24,70 @@ amounts and her private notes and must never be reachable from the LAN.
 """
 import json
 import os
+import re
+import threading
 import sys
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import pm_access
 import pm_state as S  # noqa: E402
 
 HOST, PORT = "127.0.0.1", 8789
+# ── the public (guest) listener ───────────────────────────────────────────────
+# Her board stays on PORT with no auth: only she can reach loopback. Rafael
+# answers on GUEST_PORT, which cloudflared fronts and which refuses every
+# request that does not carry a verified Cloudflare Access JWT. Two ports, one
+# process, one board, one state file — her 2026-09-14 ruling ("why don't we
+# just put the one I have") with the one change that makes it safe to hand out.
+GUEST_PORT = 8793
+ACCESS_TEAM = os.environ.get("PM_ACCESS_TEAM", "")
+ACCESS_AUD = os.environ.get("PM_ACCESS_AUD", "")
+# The board's owner. On the guest listener SHE gets the full board — the gates
+# below are about WHO is asking, not which port they arrived on, so opening
+# pm.rfsbuilders.app from her phone gives her the same board as her desk.
+OWNER_EMAIL = os.environ.get("PM_OWNER_EMAIL", "hadassa@rfsbuilders.com").lower()
+# 🔴 THE GUEST ALLOW-LIST — added 2026-09-15 after the change-audit found it missing.
+# Cloudflare Access proves an identity; it does NOT prove that identity belongs here.
+# The first cut branched only on `who == OWNER_EMAIL`, so ANY address the Access
+# policy admitted got the whole board. The policy is a Cloudflare setting nobody
+# here reads back, and a 302 to a login page proves a wall exists, never who it
+# admits — so the allow-list lives in code, where it can be tested, and the server
+# refuses an unlisted identity even when Access has already said yes.
+GUEST_ALLOW = {e.strip().lower() for e in os.environ.get(
+    "PM_GUEST_ALLOW", "rafael@rfsbuilders.com").split(",") if e.strip()}
+
+# Cards a guest must never be served. `private: true` on the card is the switch;
+# she can unset it on any card at any time. Added 2026-09-15: /api/state was
+# serving every card unfiltered, including live Cloudflare Access one-time codes.
+def _guest_safe_state(payload, state=None):
+    """Strip private cards from the state a guest receives, and say how many.
+
+    The private ids come from the RAW state, never from the UI payload: `to_ui()`
+    projects a whitelist of fields and `private` is not one of them, so filtering
+    the payload on `it["private"]` silently matched nothing and served every card.
+    That is exactly how this leaked the first time — the flag existed, the filter
+    read the wrong object. Caught 2026-09-15 by the test, not by reading the code.
+    """
+    private_ids = set()
+    if state is not None:
+        private_ids = {i.get("id") for i in state.get("items", []) if i.get("private")}
+    items = payload.get("items") or []
+    keep, hidden = [], 0
+    for it in items:
+        if it.get("private") or it.get("id") in private_ids:
+            hidden += 1
+            continue
+        keep.append(it)
+    out = dict(payload)
+    out["items"] = keep
+    clicks = out.get("state")
+    if isinstance(clicks, dict):
+        ids = {i.get("id") for i in keep}
+        out["state"] = {k: v for k, v in clicks.items() if k in ids}
+    out["_guest_hidden"] = hidden
+    return out
 UI = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pm_ui.html")
 
 # item fields the UI renders (camelCase to match the HTML engine)
@@ -134,6 +190,36 @@ class Handler(BaseHTTPRequestHandler):
             return {}
 
     # ── routes ──
+    def _state_payload(self, state):
+        """The /api/state body. Extracted 2026-09-15 so the guest listener can
+        serve the SAME payload minus private cards — a second, divergent copy is
+        how a field quietly stops being filtered."""
+        items, clicks = to_ui(state)
+        return {
+            "items": items, "state": clicks,
+            "brief_date": state.get("brief_date"),
+            "updated_at": state.get("updated_at"),
+            # Sweep provenance. `updated_at` moves on any click of hers, so it
+            # answers "when was this file last written", NOT "how current is
+            # the information" — which is the only question the header asks.
+            "last_swept_at": state.get("last_swept_at"),
+            # A failed sweep must reach the page. mark_swept() already
+            # REFUSES to stamp a sweep it has no evidence for, but a refusal
+            # that only raises into a log leaves the board showing older
+            # data while looking perfectly healthy — a confident, partial
+            # brief, which is the exact failure this is here to prevent.
+            "last_sweep_failure": state.get("last_sweep_failure"),
+            "last_swept_sources": state.get("last_swept_sources") or [],
+            "last_swept_evidence": state.get("last_swept_evidence") or {},
+            "stale_day": state.get("brief_date") != S._today(),
+            "today": S._today(),
+            "counts": S.counts(state),
+            "claude_queue": len(S.claude_queue(state)),
+            "lanes": list(S.LANES),
+            "assignees": list(S.ASSIGNEES),
+            "defer_reasons": S.DEFER_REASONS,
+        }
+
     def do_GET(self):
         path = self.path.split("?")[0]
         if path == "/healthz":
@@ -148,31 +234,7 @@ class Handler(BaseHTTPRequestHandler):
             state, status = S.load_state()
             if state is None:
                 return self._send(500, {"error": "state %s" % status})
-            items, clicks = to_ui(state)
-            return self._send(200, {
-                "items": items, "state": clicks,
-                "brief_date": state.get("brief_date"),
-                "updated_at": state.get("updated_at"),
-                # Sweep provenance. `updated_at` moves on any click of hers, so it
-                # answers "when was this file last written", NOT "how current is
-                # the information" — which is the only question the header asks.
-                "last_swept_at": state.get("last_swept_at"),
-                # A failed sweep must reach the page. mark_swept() already
-                # REFUSES to stamp a sweep it has no evidence for, but a refusal
-                # that only raises into a log leaves the board showing older
-                # data while looking perfectly healthy — a confident, partial
-                # brief, which is the exact failure this is here to prevent.
-                "last_sweep_failure": state.get("last_sweep_failure"),
-                "last_swept_sources": state.get("last_swept_sources") or [],
-                "last_swept_evidence": state.get("last_swept_evidence") or {},
-                "stale_day": state.get("brief_date") != S._today(),
-                "today": S._today(),
-                "counts": S.counts(state),
-                "claude_queue": len(S.claude_queue(state)),
-                "lanes": list(S.LANES),
-                "assignees": list(S.ASSIGNEES),
-                "defer_reasons": S.DEFER_REASONS,
-            })
+            return self._send(200, self._state_payload(state))
         if path == "/api/history":
             # Finished items from days already rolled forward. `archive_finished`
             # and `history_between` have existed since the day-roll shipped, but
@@ -285,10 +347,129 @@ class Handler(BaseHTTPRequestHandler):
         return self._send(404, {"error": "not found"})
 
 
+class GuestHandler(Handler):
+    """The internet-facing face of the same board.
+
+    Two gates, and the ORDER matters: identity first, then route. A 403 for an
+    unknown caller must never depend on which path they asked for.
+
+    WRITE SURFACE: exactly one route — POST /api/item/<id>/update, the
+    append-only update stream. Deliberately NOT the click endpoint: a tick in
+    this UI is recorded as `done_by: "hadassa"` (pm_state.py:1163, "a tick in
+    the UI is HER completion"), so a guest click would forge her completion.
+    Blocking the route is what makes that line safe to leave alone. /patch and
+    /api/roll are blocked for the same reason — neither is answering.
+    """
+
+    GUEST_GET = ("/", "/index.html", "/healthz", "/api/state", "/api/history")
+
+    def _deny(self, why):
+        print("[pm-guest] 403 %s %s — %s" % (self.command, self.path, why), flush=True)
+        return self._send(403, {"error": "not permitted"})
+
+    def _who(self):
+        tok = pm_access.token_from(self.headers, self.headers.get("Cookie", ""))
+        who = pm_access.verify(tok, ACCESS_TEAM, ACCESS_AUD)
+        # Second gate: Access said WHO you are. This says whether you belong here.
+        if who != OWNER_EMAIL and who not in GUEST_ALLOW:
+            raise pm_access.AccessDenied("%s is not on the PM board allow-list" % who)
+        return who
+
+    def do_GET(self):
+        try:
+            who = self._who()
+        except pm_access.AccessDenied as exc:
+            return self._deny(exc)
+        if who == OWNER_EMAIL:                     # her own board, from anywhere
+            return Handler.do_GET(self)
+        path = self.path.split("?")[0]
+        if path not in self.GUEST_GET:
+            return self._deny("GET %s is not on the guest allow-list" % path)
+        if path in ("/", "/index.html"):
+            if not os.path.exists(UI):
+                return self._send(500, "pm_ui.html missing", "text/plain; charset=utf-8")
+            with open(UI, "rb") as f:
+                html = f.read().decode("utf-8", "replace")
+            return self._send(200, (html + _guest_shim(who)).encode("utf-8"),
+                              "text/html; charset=utf-8")
+        if path == "/api/state":
+            state, status = S.load_state()
+            if state is None:
+                return self._send(500, {"error": "state %s" % status})
+            payload = self._state_payload(state)
+            safe = _guest_safe_state(payload, state)
+            print("[pm-guest] /api/state served to %s (%d card(s) withheld as private)"
+                  % (who, safe.get("_guest_hidden", 0)), flush=True)
+            return self._send(200, safe)
+        print("[pm-guest] %s served to %s" % (path, who), flush=True)
+        return Handler.do_GET(self)
+
+    def do_POST(self):
+        try:
+            who = self._who()
+        except pm_access.AccessDenied as exc:
+            return self._deny(exc)
+        if who == OWNER_EMAIL:                     # her clicks are her clicks
+            return Handler.do_POST(self)
+        path = self.path.split("?")[0]
+        # The ONLY writable route. Note the explicit /update suffix test: the
+        # waiting stream also ends in "/update" and must NOT be reachable, so
+        # this matches the whole shape rather than the tail.
+        if not re.match(r"\A/api/item/[^/]+/update\Z", path):
+            return self._deny("POST %s is not the answer route" % path)
+        print("[pm-guest] answer on %s by %s" % (path, who), flush=True)
+        return Handler.do_POST(self)
+
+
+def _guest_shim(email):
+    """Appended to the served page. The server is the control; this only stops
+    the guest being shown buttons that would 403 at him."""
+    return """
+<style id="pm-guest-style">
+  #pm-guest-bar{position:sticky;top:0;z-index:99999;background:#2d5f52;color:#fff;
+    font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+    padding:7px 14px;display:flex;justify-content:space-between;align-items:center}
+  #pm-guest-bar b{font-weight:700}
+</style>
+<div id="pm-guest-bar"><span><b>Modo resposta</b> — escreva a resposta em
+  "Add an update". Marcar concluido fica com a Hadassa.</span><span>%s</span></div>
+<script>
+(function(){
+  window.PM_GUEST = {email: "%s", readonly: true};
+  var _f = window.fetch;
+  window.fetch = function(u, o){
+    var url = String(u && u.url ? u.url : u);
+    var m = (o && o.method ? o.method : "GET").toUpperCase();
+    var ok = /^\/api\/item\/[^\/]+\/update$/.test(url.split("?")[0]);
+    if (m === "POST" && !ok) {
+      return Promise.resolve(new Response(
+        JSON.stringify({error:"read-only"}), {status:403,
+        headers:{"Content-Type":"application/json"}}));
+    }
+    return _f.apply(this, arguments);
+  };
+})();
+</script>
+""" % (email, email)
+
+
 def main():
     srv = ThreadingHTTPServer((HOST, PORT), Handler)
     srv.daemon_threads = True
     sys.stderr.write("pm_server on http://%s:%d\n" % (HOST, PORT))
+
+    # The guest listener starts ONLY when both Access settings are present.
+    # Unconfigured therefore means OFFLINE, never OPEN — there is no flag that
+    # serves the board to the internet without a signature to check.
+    if ACCESS_TEAM and ACCESS_AUD:
+        guest = ThreadingHTTPServer((HOST, GUEST_PORT), GuestHandler)
+        guest.daemon_threads = True
+        threading.Thread(target=guest.serve_forever, daemon=True).start()
+        sys.stderr.write("pm_server GUEST on http://%s:%d — Access team %s, aud %s…\n"
+                         % (HOST, GUEST_PORT, ACCESS_TEAM, ACCESS_AUD[:8]))
+    else:
+        sys.stderr.write("pm_server GUEST not started "
+                         "(PM_ACCESS_TEAM / PM_ACCESS_AUD unset)\n")
     sys.stderr.flush()
     srv.serve_forever()
 
