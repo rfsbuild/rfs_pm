@@ -104,6 +104,12 @@
     "name": "1:1 DM — Hadassa ↔ Guilherme",
     "note": "🔴 ADDED 2026-09-14. Marked 'replaced' by C0BLH50E4EP since 2026-07-29 and never swept, while carrying live traffic — a 19-point field canvas on 2026-09-02. Same failure class as the Rafael 1:1.",
     "added": "2026-09-14"
+   },
+   {
+    "id": "D0BK8K0TC4D",
+    "name": "1:1 DM — Hadassa ↔ Alice",
+    "note": "🔴 ADDED 2026-09-15, Alice's LAST DAY IS 2026-09-16. Verified live before registering: the id resolves and the DM carried the handoff at 09:55:35 today — 'Handoff Alice-Hadassa' linking docs.google.com/document/d/1TOistwWXwQL3pRld5OX7bq6twwpafrfpjaJkrdCuO5s. It had been UNREGISTERED, so three attempts to reach that document (Drive-by-id, Drive title search, Slack file read) all failed while it sat in an unswept DM. LOW TRAFFIC BY DESIGN — only two messages have ever been sent here — so an empty sweep of it is normal and is NOT evidence the source is dead. Worth reading through Alice's departure and the weeks after: a handoff's loose ends arrive one at a time, and this is the channel she uses.",
+    "added": "2026-09-15"
    }
   ]
  },

@@ -256,6 +256,16 @@ ITEM_FIELDS = (
     "claude_queued_at",
     "done_by",
     "claude_result",
+    # ── the audit ruling (2026-09-15) ──
+    # `audit` (written by scripts/apply_audit_overlay.py) is the AUDIT's opinion.
+    # This is HERS: "closed" / "kept" / None, meaning she has ruled on that
+    # opinion and the card should stop appearing in the Triage view.
+    #
+    # It is board state, not a browser preference, because the alternative was
+    # localStorage — and a ruling she makes on her laptop would then be invisible
+    # from her phone and gone with the site data. The whole point of D8 is that
+    # the audit's output lands as card state she can act on.
+    "audit_ruled",
 )
 
 # status values. `dismissed` = "this task isn't needed" — it is NOT the same as
@@ -269,7 +279,11 @@ STATUSES = ("open", "done", "dismissed")
 # Fields the UI may edit in place. Deliberately excludes status/defer/assignee —
 # those go through apply_click so defer_days accounting stays correct.
 PATCHABLE = ("subject", "meta", "action", "project", "lane", "kind", "due",
-             "ctx_sum", "did")
+             "ctx_sum", "did",
+             # Her ruling on an audit verdict. Editable in place like the rest:
+             # it changes nothing the server has to account for (no defer_days,
+             # no status transition), so it does not need apply_click.
+             "audit_ruled")
 
 
 # ── time ──
@@ -419,6 +433,7 @@ def new_item(id, subject, **kw):
         "waiting": None,
         # Delegation to Claude — see ITEM_FIELDS.
         "claude_queued_at": None,
+        "audit_ruled": None,
         "done_by": None,
         "claude_result": None,
     }
@@ -1080,7 +1095,7 @@ def patch_content(item_id, patch, path=STATE_PATH, now=None):
 UPDATE_KINDS = ("update", "done")
 
 
-def add_update(item_id, text, kind="update", set_did=False,
+def add_update(item_id, text, kind="update", set_did=False, by="hadassa",
                path=STATE_PATH, now=None):
     """Append one timestamped entry to a card's update stream. APPEND-ONLY.
 
@@ -1112,7 +1127,14 @@ def add_update(item_id, text, kind="update", set_did=False,
         if it is None:
             return None
         it.setdefault("updates", []).append(
-            {"at": _now_iso(now), "text": text, "kind": kind})
+            {"at": _now_iso(now), "text": text, "kind": kind,
+                   # WHO wrote it (2026-09-15). Absent until today, and its
+                   # absence is why a note of HERS could not be told from one of
+                   # Claude's — which is why her "already sent on Aug 18" on the
+                   # Andersen JCC/LSWP card sat unsurfaced for a day. Entries
+                   # written before this carry no `by` and are treated as
+                   # UNKNOWN, never assumed to be hers.
+                   "by": by})
         if set_did:
             it["did"] = text
         return {"ok": True, "id": item_id, "updates": len(it["updates"]),

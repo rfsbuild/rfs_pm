@@ -22,6 +22,7 @@ amounts and her private notes and must never be reachable from the LAN.
     POST /api/roll            roll the day forward
     GET  /healthz             liveness for launchd / curl
 """
+import datetime
 import json
 import os
 import re
@@ -34,6 +35,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import pm_access
 import pm_state as S  # noqa: E402
 
+REQ_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs", "pm_requests.log")
 HOST, PORT = "127.0.0.1", 8789
 # ── the public (guest) listener ───────────────────────────────────────────────
 # Her board stays on PORT with no auth: only she can reach loopback. Rafael
@@ -86,6 +88,27 @@ def _guest_safe_state(payload, state=None):
     if isinstance(clicks, dict):
         ids = {i.get("id") for i in keep}
         out["state"] = {k: v for k, v in clicks.items() if k in ids}
+    # ── the audit overlay is filtered too, not just the card list ──
+    # `contra` quotes HER note back and says the evidence disagrees with it, and
+    # `lost_tick` records that a completion of hers did not survive. Both are
+    # feedback to the owner of the board about her own work. Rafael is on the
+    # allow-list for the board's CONTENT, which is not the same as being an
+    # audience for that. The verdict, the evidence line and the owner stay —
+    # those are about the WORK and are useful to whoever picks the card up.
+    clicks2 = out.get("state")
+    if isinstance(clicks2, dict):
+        scrubbed = {}
+        for k, v in clicks2.items():
+            a = (v or {}).get("audit")
+            if isinstance(a, dict) and (a.get("contra") or a.get("lost_tick")):
+                v = dict(v)
+                a = dict(a)
+                a.pop("contra", None)
+                a.pop("lost_tick", None)
+                a["band"] = None if a.get("band") in ("CONTRADICTED", "LOST TICK") else a.get("band")
+                v["audit"] = a
+            scrubbed[k] = v
+        out["state"] = scrubbed
     out["_guest_hidden"] = hidden
     return out
 UI = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pm_ui.html")
@@ -158,6 +181,16 @@ def to_ui(state):
             # same reason as `waiting` and `did`: it is HER record, and an
             # ingest run must never be able to overwrite what she wrote down.
             "updates": it.get("updates") or [],
+            # The board audit's verdict overlay (2026-09-15). In `clicks` and
+            # not `_CONTENT_MAP` for the same reason as `waiting` and `did`: an
+            # ingest run must never be able to overwrite it. It is written only
+            # by scripts/apply_audit_overlay.py, and it carries no card state —
+            # only evidence for a decision she still makes herself.
+            "audit": it.get("audit"),
+            # HER ruling on that verdict — "closed" / "kept" / None. Separate
+            # from `audit` on purpose: one is the opinion, the other is her
+            # answer to it, and an overlay rewrite must never erase her answer.
+            "auditRuled": it.get("audit_ruled"),
         }
     return items, clicks
 
@@ -165,8 +198,34 @@ def to_ui(state):
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
-    def log_message(self, fmt, *args):     # quiet; launchd captures stderr
-        pass
+    # ── the mutation log (2026-09-15) ──
+    # This used to be `pass` — every request, including every write, was
+    # silent. On 2026-09-14 Hadassa ticked 14 cards and 11 were open again the
+    # next morning, and the question "did that POST ever arrive?" was
+    # UNANSWERABLE: no request log, and pm_state.json had no version history
+    # either. A board with no record of its own writes cannot be debugged, and
+    # she runs the company off this one from 2026-09-16.
+    #
+    # GETs stay silent on purpose — the UI polls /api/state, so logging reads
+    # would bury the writes in noise and teach everyone to ignore the file.
+    # Only mutations are logged, with a timestamp and the response code, so a
+    # failed or never-arrived write is visible after the fact.
+    def log_message(self, fmt, *args):
+        if self.command == "GET":
+            return
+        try:
+            # Log the handler's own formatted message rather than picking an
+            # index out of *args: log_request() and log_error() pass different
+            # shapes, and args[1] is the status code in one and the error text
+            # in the other. Formatting it the way the base class would keeps
+            # both readable instead of silently mislabelling one.
+            msg = fmt % args if args else str(fmt)
+            with open(REQ_LOG, "a") as fh:
+                fh.write("%s  %s  %s\n" % (
+                    datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
+                    getattr(self, "command", "?"), msg))
+        except Exception:
+            pass    # a logging fault must never break a write
 
     # ── helpers ──
     def _send(self, code, body, ctype="application/json; charset=utf-8"):
@@ -179,6 +238,15 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(raw)
+
+    def _actor(self):
+        """WHO is writing. The loopback listener is reachable only from her Mac,
+        so on this handler the answer is always her. GuestHandler overrides it —
+        and it MUST, because /api/item/<id>/update is the one route Rafael can
+        write to. Taking the author from the request body instead would let a
+        guest's answer be stored as hers, which is the attribution law this board
+        is built on (pm_state.py: done_by "hadassa" means SHE did it)."""
+        return "hadassa"
 
     def _body(self):
         n = int(self.headers.get("Content-Length") or 0)
@@ -327,7 +395,8 @@ class Handler(BaseHTTPRequestHandler):
                 iid = rest[: -len("/update")]
                 res = S.add_update(iid, body.get("text"),
                                    kind=body.get("kind") or "update",
-                                   set_did=bool(body.get("set_did")))
+                                   set_did=bool(body.get("set_did")),
+                                   by=self._actor())
                 if res is None:
                     return self._send(404, {"error": "no such item"})
                 return self._send(400 if res.get("error") else 200, res)
@@ -374,6 +443,13 @@ class GuestHandler(Handler):
         if who != OWNER_EMAIL and who not in GUEST_ALLOW:
             raise pm_access.AccessDenied("%s is not on the PM board allow-list" % who)
         return who
+
+    def _actor(self):
+        try:
+            who = self._who()
+        except pm_access.AccessDenied:
+            return "unknown"
+        return "hadassa" if who == OWNER_EMAIL else who
 
     def do_GET(self):
         try:

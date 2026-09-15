@@ -68,10 +68,18 @@ def test_registered_name_matches_the_pinned_id(reg):
 
 
 def test_every_slack_source_is_well_formed(reg):
-    """An id that is not a channel id cannot be read, and a sweep cannot tell
-    the difference between 'read it and found nothing' and 'never resolved'."""
+    """An id that is not a readable conversation id cannot be read, and a sweep
+    cannot tell the difference between 'read it and found nothing' and 'never
+    resolved'.
+
+    C = public/private channel, D = 1:1 DM. This asserted C only until
+    2026-09-15, which made it RED the moment the registry gained Rafael's 1:1
+    (D0BL67Q10EL) on 2026-09-14 — the source the 09-14 ruling called the
+    highest-value unread one on the board. The sweep does read it: 20 cards in
+    pm_state.json cite it. So the test was wrong, not the registry."""
     for c in _slack_sources(reg):
-        assert c.get("id", "").startswith("C"), "bad channel id: %r" % (c,)
+        assert c.get("id", "")[:1] in ("C", "D"), (
+            "not a readable conversation id (expected C… channel or D… DM): %r" % (c,))
         assert c.get("name"), "source has no name: %r" % (c,)
         assert c.get("note"), "source %s has no note explaining why it is swept" % c["name"]
 

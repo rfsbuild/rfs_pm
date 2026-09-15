@@ -416,6 +416,14 @@ a{color:var(--brand-deep);}
 .subj[contenteditable="true"]:focus{outline:none;background:var(--brand-soft);border-radius:4px;
   box-shadow:0 0 0 3px var(--brand-soft);}
 .metaline{font-size:12px;color:var(--muted);margin-top:2px;}
+/* 2026-09-15, hers: "Cards have no dates and I need to know when that task first
+   came up, cause I know I checked A LOT of cards yesterday with things that had
+   already been solved." first_seen was ALREADY in the payload (pm_server _CONTENT_MAP)
+   and simply never drawn. Age is coloured because the number she acts on is not the
+   date, it is "has this been sitting here". */
+.since{font-weight:700;color:var(--ink);}
+.since.warm{color:var(--warn);}
+.since.old{color:var(--bad);}
 .tags{display:flex;gap:4px;flex-wrap:wrap;margin-top:7px;}
 .t{font-size:10.5px;padding:2px 7px;border-radius:20px;background:var(--rule-soft);
   color:var(--muted);border:1px solid var(--rule);font-weight:600;white-space:nowrap;}
@@ -619,6 +627,68 @@ input[type=date].mini{color:var(--muted);}
 .toast.show{transform:translateX(-50%) translateY(0);opacity:1;visibility:visible;
   pointer-events:auto;transition-delay:0s;}
 .toast button{background:transparent;border:none;color:#a99bff;font-weight:750;font-size:13px;}
+/* ── the audit overlay (2026-09-15) ──
+   The 2026-09-14/15 eight-agent audit read all 205 open cards. Its verdicts
+   live ON the cards (pm_state `audit`), not on a separate page — her D8. The
+   chip is how a verdict reads everywhere; .abox is the decision surface, shown
+   only in the Triage view, where she rules and the card leaves. */
+.achip{display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:800;
+  letter-spacing:.3px;padding:2px 7px;border-radius:999px;border:1px solid transparent;}
+.achip.v-noise{background:#eef0f5;color:var(--muted);border-color:var(--rule);}
+.achip.v-done{background:var(--ok-bg);color:#1e7a4d;border-color:#bfe4d1;}
+.achip.v-keep{background:var(--brand-soft);color:var(--brand-deep);border-color:#d8d1fb;}
+.achip.v-cannot{background:var(--warn-bg);color:var(--warn);border-color:#ecd9ac;}
+.achip.v-contra{background:var(--bad-bg);color:var(--bad);border-color:#f3c6c1;}
+.achip.v-lost{background:var(--warn-bg);color:var(--warn);border-color:#ecd9ac;}
+.achip.ruled{background:#eef0f5;color:var(--faint);border-color:var(--rule);}
+.abox{margin:9px 0 2px;border:1px solid var(--rule);border-radius:9px;
+  background:#fbfbfe;padding:9px 11px;}
+.abox.contra{border-color:#f3c6c1;background:#fffaf9;}
+.abox.lost{border-color:#ecd9ac;background:#fffdf7;}
+.abox .alb{font-size:10.5px;font-weight:800;letter-spacing:.5px;color:var(--muted);
+  text-transform:uppercase;margin-bottom:4px;}
+.abox.contra .alb{color:var(--bad);}
+.abox.lost .alb{color:var(--warn);}
+.abox .aw{font-size:13px;line-height:1.5;color:var(--body);}
+.abox .aq{font-size:13px;line-height:1.5;color:var(--ink);font-style:italic;
+  border-left:3px solid var(--rule);padding-left:9px;margin:5px 0;}
+.abox.contra .aq{border-left-color:var(--bad);}
+.abox .ado{font-size:13px;line-height:1.5;color:var(--ink);font-weight:650;margin-top:5px;}
+.abox .arow{display:flex;gap:7px;flex-wrap:wrap;margin-top:9px;align-items:center;}
+.abox .arow .sp{flex:1;}
+.abtn{border:1px solid var(--rule);background:#fff;color:var(--ink);border-radius:7px;
+  padding:5px 11px;font-size:12.5px;font-weight:700;cursor:pointer;}
+.abtn.pri{background:var(--ink);color:#fff;border-color:var(--ink);}
+.abtn.bad{background:var(--bad);color:#fff;border-color:var(--bad);}
+.abtn.gh{background:transparent;color:var(--muted);}
+.ruledpill{font-size:11.5px;color:var(--muted);}
+.tbanner{border:1px solid var(--rule);background:#fff;border-radius:11px;
+  padding:12px 15px;margin:0 0 14px;box-shadow:var(--shadow);}
+.tbanner h3{margin:0 0 5px;font-size:15px;}
+.tbanner p{margin:0;font-size:13px;line-height:1.55;color:var(--body);}
+.tbanner .trow{display:flex;gap:8px;margin-top:10px;align-items:center;flex-wrap:wrap;}
+/* ── the not-saved bar (2026-09-15) ──
+   A failed write used to show ONLY the 12px "NOT SAVED" pill in the header
+   while the card itself still rendered ticked. That is a silent lie, and it
+   is the shape of the 2026-09-14 loss: 14 cards ticked, 11 open again the
+   next morning, with nothing on screen that said so. This bar is deliberately
+   loud, deliberately persistent (no auto-dismiss), and names the cards. */
+/* `display:flex` below is an AUTHOR rule and beats the user-agent's
+   [hidden]{display:none}, so `el.hidden=true` did NOT hide this bar — it sat on
+   screen from page load with empty text, and Dismiss appeared to do nothing.
+   Shipped that way on 2026-09-15 and she hit it within the hour. The stub test
+   asserted `el.hidden===true` and passed, because a JS stub cannot see CSS —
+   so the guard for this lives in check_ui_hidden_attr.py, a static check. */
+.savefail[hidden]{display:none!important;}
+.savefail{position:fixed;left:0;right:0;top:0;z-index:120;background:var(--bad);
+  color:#fff;padding:10px 16px;font-size:13.5px;font-weight:600;
+  box-shadow:0 4px 18px rgba(0,0,0,.22);display:flex;gap:14px;align-items:flex-start;}
+.savefail .sfx{flex:1;min-width:0;}
+.savefail .sfl{display:block;font-weight:800;letter-spacing:.2px;margin-bottom:2px;}
+.savefail .sfi{display:block;font-weight:500;opacity:.94;font-size:12.5px;line-height:1.45;}
+.savefail button{background:#fff;color:var(--bad);border:none;border-radius:7px;
+  padding:5px 11px;font-weight:750;font-size:12.5px;cursor:pointer;flex:none;}
+.savefail button.ghost{background:transparent;color:#fff;border:1px solid rgba(255,255,255,.55);}
 .scrim{position:fixed;inset:0;background:rgba(28,33,48,.34);z-index:100;display:none;}
 .scrim.show{display:block;}
 .palette{position:fixed;left:50%;top:14%;transform:translateX(-50%);width:min(620px,92vw);
@@ -749,6 +819,14 @@ kbd{background:var(--rule-soft);border:1px solid var(--rule);border-bottom-width
     <button class="pbtn" onclick="confirmWaiting()">Move to Waiting on</button>
   </div>
 </div>
+<div class="savefail" id="savefail" hidden>
+  <span class="sfx">
+    <span class="sfl" id="savefail-h"></span>
+    <span class="sfi" id="savefail-b"></span>
+  </span>
+  <button onclick="retryFailedSaves()">Try again</button>
+  <button class="ghost" onclick="dismissSaveFail()">Dismiss</button>
+</div>
 <div class="toast" id="toast"><span id="toasttxt"></span><button id="toastbtn" onclick="undo()">Undo</button></div>
 <div class="scrim" id="scrim" onclick="closePalette();closeDismiss();closeWaiting();"></div>
 <div class="palette" id="palette">
@@ -843,13 +921,31 @@ const WAIT_KIND={response:{label:"a reply",days:2},task:{label:"the work",days:3
 const DEFERS={"no-time":"⏰ No time today",
   "later-week":"📅 Later this week","needs-rafael":"⚪ Needs Rafael"};
 const ASG=["hadassa","rafael","guilherme","claude","alice"];
-const VIEWS=[["today","Today"],["board","Board"],["waiting","👤 Waiting on"],
+const VIEWS=[["today","Today"],["triage","🔍 Triage"],["board","Board"],["waiting","👤 Waiting on"],
              ["claude","🤖 With Claude"],["project","By project"],["people","By person"],
              ["done","Done"],["dropped","Not needed"]];
 
 const esc=s=>String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;")
   .replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 const cs=id=>CLICK[id]||(CLICK[id]={done:false,assignee:null,defer:null,deferDays:0,note:null,project:null});
+/* ── the board audit's verdict overlay (2026-09-15) ──
+   `audit` is the AUDIT's opinion, written by scripts/apply_audit_overlay.py.
+   `auditRuled` is HER answer to it. A card drops out of Triage the moment she
+   rules, and only then — a verdict she has not answered never disappears on
+   its own, because a triage that quietly empties itself is not a triage. */
+const auditOf =id=>(cs(id)||{}).audit||null;
+const ruledOf =id=>(cs(id)||{}).auditRuled||null;
+const auditBand=id=>{const a=auditOf(id);
+  return (a&&a.band&&!ruledOf(id))?a.band:null;};
+const BANDS=["CONTRADICTED","LOST TICK","NOISE","LIKELY DONE","CANNOT TELL"];
+const BAND_NOTE={
+  "CONTRADICTED":"your own note is contradicted by evidence",
+  "LOST TICK":"you ticked it and the tick was lost",
+  "NOISE":"nothing here needs an action from anyone",
+  "LIKELY DONE":"the evidence says it is already done",
+  "CANNOT TELL":"the record cannot settle it either way"};
+const BAND_CLS={"CONTRADICTED":"v-contra","LOST TICK":"v-lost","NOISE":"v-noise",
+                "LIKELY DONE":"v-done","CANNOT TELL":"v-cannot","KEEP":"v-keep"};
 const byId=id=>ITEMS.find(i=>i.id===id);
 /* LOCAL calendar day, never UTC. `toISOString()` is UTC, so after 20:00 EDT it
    returns tomorrow and every due-date badge flips a day early — the same class
@@ -935,16 +1031,93 @@ function setSave(k,msg){
   p.className="savepill"+(k==="saving"?" saving":k==="error"?" error":"");
   t.textContent = k==="saving"?"Saving…" : k==="error"?("NOT SAVED — "+(msg||"server down")) : "Saved";
 }
+/* ── a save that fails must LOOK failed (2026-09-15) ──
+   The old version caught the error, set the header pill, and resolved — so
+   `save(id).then(()=>render())` re-rendered the card with the optimistic
+   local state still applied. The card read "done", the toast said "Marked
+   done", and the only contrary signal was a 12px pill. On 2026-09-14 fourteen
+   cards were ticked and eleven were open the next morning; nothing on the
+   screen could have told her. Every server-side reopen path was ruled out on
+   2026-09-15 (pm_routine only touches the routine lane and pops `did`, which
+   these kept; set_waiting refuses done->open; roll_forward last ran
+   2026-07-29 and deletes done cards; apply_click reproduces clean on a copy),
+   so an un-landed write is the remaining explanation — and it is the one the
+   UI had no way to show.
+
+   So: snapshot exactly the fields this POST carries, restore them on failure,
+   drop the tick-time prompt (a card that is not done must not be asked what
+   she did about it), re-render, and raise a bar that does not go away. */
+const SAVE_FAILED=new Map();
+const SAVE_KEYS=["done","status","done_at","assignee","defer","deferDays","note","project","due"];
+/* CONFIRMED = the last state the SERVER acknowledged for a card.
+   It cannot be snapshotted inside save(): every caller mutates the local copy
+   first and saves after (`setLocalDone(id,true); save(id)`), so a snapshot
+   taken here is already the optimistic value and "reverting" to it is a no-op.
+   That exact bug was written and then caught by test_pm_ui_savefail.js before
+   it shipped — which is the whole reason the test exists.
+   Seeded at boot from /api/state and refreshed on every acknowledged write. */
+let CONFIRMED={};
+const confirmOf=id=>CONFIRMED[id];
+function markConfirmed(id){ const s=cs(id), o={};
+  SAVE_KEYS.forEach(k=>o[k]=s[k]); CONFIRMED[id]=o; }
 function save(id){
   const s=cs(id); setSave("saving");
+  const before=confirmOf(id);
   return fetch("/api/item/"+encodeURIComponent(id),{method:"POST",
     headers:{"Content-Type":"application/json"},
     body:JSON.stringify({done:!!s.done,assignee:s.assignee||null,defer:s.defer||null,
       deferDays:s.deferDays||0,note:s.note||null,project:s.project||null,due:s.due||null})})
     .then(r=>{if(!r.ok)throw new Error("HTTP "+r.status);return r.json();})
     .then(j=>{ if(j.defer_days!==undefined) s.deferDays=j.defer_days;
-               if(j.done_at!==undefined) s.done_at=j.done_at; setSave("saved"); return j;})
-    .catch(e=>{setSave("error",e.message);});
+               if(j.done_at!==undefined) s.done_at=j.done_at;
+               markConfirmed(id);
+               SAVE_FAILED.delete(id); renderSaveFail(); setSave("saved"); return j;})
+    .catch(e=>{
+      /* Capture what she WANTED before reverting — that is the thing "Try
+         again" has to re-send. Reading it off `before` instead would re-send
+         the pre-click state, i.e. retry would helpfully undo her own click.
+         (Written that way first; test_pm_ui_savefail.js TEST 2 caught it.) */
+      const want={}; SAVE_KEYS.forEach(k=>want[k]=s[k]);
+      /* Back to the last state the server actually acknowledged. If this card
+         has never been saved in this session there is nothing confirmed to go
+         back to, so fall back to "open" — the state the board loaded with. */
+      if(before) SAVE_KEYS.forEach(k=>s[k]=before[k]);
+      else { s.done=false; s.status="open"; s.done_at=null; }
+      ASK_DID.delete(id);
+      SAVE_FAILED.set(id,{msg:e.message,want:want});
+      setSave("error",e.message); renderSaveFail();
+      try{ render(); }catch(_){}
+    });
+}
+function subjOf(id){
+  const it=(ITEMS||[]).find(x=>x.id===id);
+  const t=String((it&&it.subject)||id);
+  return t.length>54?t.slice(0,54)+"…":t;
+}
+function renderSaveFail(){
+  const el=document.getElementById("savefail"); if(!el) return;
+  const n=SAVE_FAILED.size;
+  if(!n){ el.hidden=true; return; }
+  const ids=[...SAVE_FAILED.keys()];
+  document.getElementById("savefail-h").textContent =
+    n===1 ? "NOT SAVED — this did not reach the board"
+          : "NOT SAVED — "+n+" changes did not reach the board";
+  document.getElementById("savefail-b").textContent =
+    ids.slice(0,4).map(subjOf).join("  ·  ")
+    + (n>4 ? "  ·  +"+(n-4)+" more" : "")
+    + "  —  they have been put back the way they were. "
+    + (SAVE_FAILED.get(ids[0])||{}).msg;
+  el.hidden=false;
+}
+function dismissSaveFail(){ SAVE_FAILED.clear(); renderSaveFail(); }
+function retryFailedSaves(){
+  const pending=[...SAVE_FAILED.entries()];
+  SAVE_FAILED.clear(); renderSaveFail();
+  /* Re-apply the whole intended state, not just the tick — a failed write can
+     equally have been a defer, a note, a project or an assignee. */
+  pending.forEach(([id,f])=>{ const s=cs(id);
+    if(f.want) SAVE_KEYS.forEach(k=>{ if(f.want[k]!==undefined) s[k]=f.want[k]; }); });
+  Promise.all(pending.map(([id])=>save(id))).then(()=>render());
 }
 function dismiss(id,reason){
   const s=cs(id); setSave("saving");
@@ -1044,6 +1217,8 @@ function patch(id,fields){
 function boot(){
   return fetch("/api/state").then(r=>r.json()).then(d=>{
     ITEMS=d.items||[]; CLICK=d.state||{}; META=d;
+    /* Everything the server just handed us IS confirmed, by definition. */
+    CONFIRMED={}; Object.keys(CLICK).forEach(markConfirmed);
     /* The masthead date is TODAY. The chip is the date the board's DATA is from,
        and it is labelled as such: when the two differ the board is showing
        yesterday's sweep, and an unlabelled bare date next to a big one reads as
@@ -1140,6 +1315,11 @@ function visible(){
   const q=FILT.q.toLowerCase();
   return ITEMS.filter(it=>{
     const s=cs(it.id);
+    /* Triage holds exactly the cards carrying an unanswered verdict — no more,
+       no fewer. Placed FIRST so none of the lane/waiting rules below can quietly
+       drop one: a card she must rule on cannot be filtered away by a view
+       preference. */
+    if(VIEW==="triage" && !auditBand(it.id)) return false;
     if(VIEW==="done"    && !isDone(it.id)) return false;
     if(VIEW==="dropped" && !isDrop(it.id)) return false;
     if(VIEW!=="done" && VIEW!=="dropped" && isDrop(it.id)) return false;
@@ -1171,7 +1351,7 @@ function visible(){
        against it: the prompt would exist for an element that is gone, exactly
        how the tick-time prompt failed on the tab she actually works in. It holds
        its place until she answers or skips, then leaves normally. */
-    if(VIEW!=="waiting" && VIEW!=="done" && VIEW!=="dropped"
+    if(VIEW!=="waiting" && VIEW!=="done" && VIEW!=="dropped" && VIEW!=="triage"
        && VIEW!=="people" && isWaiting(it.id) && !ASK_KIND.has(it.id)) return false;
     if(FILT.mine && s.assignee) return false;
     if(FILT.assignedAway && !(s.assignee && s.assignee!=="hadassa")) return false;
@@ -1327,6 +1507,24 @@ const dShortDate=iso=>{
    iterates ITEMS, so seeding only `CLICK` cannot inflate a single badge. It is
    also rendered read-only, because its controls would POST against an id the
    server no longer has and fail silently. */
+/* "When did this first come up?" — from `first_seen`, which the sweep stamps the
+   first time a card is ingested. Two honest limits, deliberately not hidden:
+   a card carries the date the SWEEP first saw it, not necessarily the date the
+   underlying thing happened; and the oldest cards share a handful of identical
+   timestamps because they were bulk-imported when the board was built. Both still
+   answer her real question, which is "has this been sitting here?". */
+function sinceChip(it){
+  const raw=it.firstSeen||it.first_seen;
+  if(!raw) return `<span class="since">no date</span>`;
+  const d=new Date(raw);
+  if(isNaN(d)) return `<span class="since">no date</span>`;
+  const days=Math.max(0,Math.floor((Date.now()-d.getTime())/86400000));
+  const cls=days>=30?"old":(days>=14?"warm":"");
+  const lbl=d.toLocaleDateString("en-GB",{day:"numeric",month:"short"});
+  const ago=days===0?"today":(days===1?"1 day":days+" days");
+  return `<span class="since ${cls}" title="first seen ${esc(String(raw))}">Since ${esc(lbl)} · ${ago}</span>`;
+}
+
 const HIST_UI={};
 function histToUi(r){
   if(HIST_UI[r.id]) return HIST_UI[r.id];
@@ -1361,7 +1559,7 @@ function dExpand(id){
 }
 function dRows(rows){
   return rows.map(r=>{
-    const who=r.by==="claude"?"Claude":(r.by==="hadassa"||!r.by?"you":r.by);
+    const who=r.by==="claude"?"Claude":((r.by==="hadassa"||!r.by)?"Hadassa":(r.by[0].toUpperCase()+r.by.slice(1)));
     const key=encodeURIComponent(r.id), isOpen=DEXP.has(r.id);
     const hasCtx=!!(r.item && (r.item.ctxSum || (r.item.ctxBody||[]).length
                    || r.item.ctxHappened || r.item.ctxMatters || r.item.ctxNeeded
@@ -1484,6 +1682,14 @@ function render(){
         +'picked up at the start of the next session, and comes back marked '
         +'<b>done by Claude</b> with what was actually done.</div>';
       return; }
+    if(VIEW==="triage"){
+      const ruled=ITEMS.filter(i=>auditOf(i.id)&&ruledOf(i.id)).length;
+      b.innerHTML='<div class="empty">'+(ruled
+        ? "Triage done — you ruled on all "+ruled+" cards.<br>The rest of the board is the "
+          +"163 cards the audit judged worth keeping.<br><br>"
+          +'<button class="abtn gh" onclick="resetTriage()">Reset all rulings</button>'
+        : "No audit verdicts are waiting on you.")+'</div>';
+      return; }
     b.innerHTML = VIEW==="waiting"
       ? '<div class="empty">Nothing is waiting on anyone else right now.<br>'
         + 'Use <b>👤 Waiting on…</b> on a card when you\'ve asked someone for '
@@ -1520,7 +1726,15 @@ function render(){
     const chase=ord.filter(i=>nudgeDue(i.id)||needsWho(i.id));
     const rest=ord.filter(i=>!nudgeDue(i.id)&&!needsWho(i.id));
     if(chase.length) group(b,"Chase now — the date has come",chase);
-    if(rest.length)  group(b,"Waiting — nothing to do yet",rest);
+    /* ── her ruling, 2026-09-15 ──
+       "'waiting - nothing to do yet' should not exist. this board is ONLY for
+       things to be done."  She is quoting the old title of this very group.
+       These cards are not deleted — the chase date is what brings each one back,
+       and deleting them would make the waiting space the drawer things die in
+       that the comment below warns about. But they are no longer LISTED: the
+       group is collapsed to one line, so the board shows work and not a queue of
+       things she cannot act on yet. Open it and the cards are all still there. */
+    if(rest.length)  groupFold(b,"Parked — nothing to do until the chase date",rest);
     wire(); return;
   }
   if(VIEW==="today"){
@@ -1552,6 +1766,30 @@ function render(){
     TODAY_LANES.forEach(l=>group(b,LANE_LABEL[l],
       sortItems(vis.filter(i=>lane(i)===l
                              && (stat(i.id)==="open" || askedStill(i.id))))));
+  } else if(VIEW==="triage"){
+    /* Bands, not lanes. A card sits in exactly ONE, in BANDS order, so a card
+       whose note is contradicted is never filed under "likely done" just
+       because it also carries that verdict — the contradiction is the thing
+       she has to see. */
+    const ruled=ITEMS.filter(i=>auditOf(i.id)&&ruledOf(i.id)).length;
+    const left=vis.length;
+    const total=ITEMS.filter(i=>(auditOf(i.id)||{}).band).length;
+    b.insertAdjacentHTML("beforeend",
+      `<div class="tbanner">
+        <h3>🔍 The board audit — ${total} cards need your call</h3>
+        <p>Every open card was read on 2026-09-14/15, all 205, no sampling.
+           <b>${left} left</b> · ${ruled} ruled. Ruling a card takes it out of this
+           tab and nowhere else — closing it closes it on the board, keeping it
+           leaves it exactly where it was. <b>Nothing here was decided for you.</b></p>
+        <div class="trow">
+          <button class="abtn" onclick="undoRuling()">↶ Undo last ruling</button>
+          <button class="abtn gh" onclick="resetTriage()">Reset all rulings</button>
+          <span class="sp" style="flex:1"></span>
+          <span class="ruledpill">${ITEMS.filter(i=>{const a=auditOf(i.id);return a&&a.verdict==="KEEP"&&!a.band;}).length} more cards were read and judged KEEP — they stay on the board.</span>
+        </div>
+      </div>`);
+    BANDS.forEach(bd=>group(b,bd+" — "+BAND_NOTE[bd],
+      sortItems(vis.filter(i=>auditBand(i.id)===bd))));
   } else if(VIEW==="board"){
     Object.keys(LANE_LABEL).forEach(l=>group(b,LANE_LABEL[l],sortItems(vis.filter(i=>lane(i)===l))));
   } else if(VIEW==="project"){
@@ -1599,7 +1837,7 @@ function render(){
       return "hadassa";
     };
     ASG.forEach(k=>groupFold(b,
-      k==="hadassa"?"Me":k[0].toUpperCase()+k.slice(1),
+      k[0].toUpperCase()+k.slice(1),
       sortItems(vis.filter(i=>whose(i)===k)),
       {keepEmpty:true, emptyLabel:"nothing assigned"}));
   } else if(VIEW==="done"){
@@ -1609,6 +1847,89 @@ function render(){
   }
   wire();
 }
+/* ── the audit decision surface (2026-09-15) ──
+   Shown ONLY in Triage. Elsewhere the chip is enough; a decision box on every
+   card in every view is the "repetitive things and noise" she said would cost
+   her time. Each band asks its own question, because "close it?" is the wrong
+   question for a card whose whole finding is that her note was contradicted. */
+function auditBlock(it){
+  if(VIEW!=="triage") return "";
+  const a=auditOf(it.id), band=auditBand(it.id);
+  if(!a||!band) return "";
+  const id=it.id, cls=band==="CONTRADICTED"?"contra":(band==="LOST TICK"?"lost":"");
+  const B=(k,l,c)=>`<button class="abtn ${c||""}" data-rule="${id}" data-rv="${k}">${l}</button>`;
+  let head="", body="", btns="";
+
+  if(band==="CONTRADICTED"){
+    head="Your note is contradicted by the evidence";
+    body=`<div class="aq">You wrote: “${esc(a.contra.her_words)}”</div>
+          <div class="aw">${esc(a.contra.evidence)}</div>
+          <div class="ado">→ ${esc(a.contra.do)}</div>`;
+    btns=B("kept","Keep it open — I'll do that","pri")+B("closed","No, I'm right — close it");
+  } else if(band==="LOST TICK"){
+    head="You ticked this and the tick did not survive";
+    body=`<div class="aq">You wrote: “${esc(a.lost_tick.text)}” — ${esc((a.lost_tick.at||"").slice(0,16).replace("T"," "))}</div>
+          <div class="aw">The completion never reached the board, so the card came back open.
+            That hole is closed now, but this one still needs your call.</div>`;
+    btns=B("closed","Yes — close it","pri")+B("kept","No, keep it open");
+  } else if(band==="NOISE"){
+    head="Nothing here needs an action from anyone";
+    body=`<div class="aw">${esc(a.why)}</div>`;
+    btns=B("dismissed","Drop it — not needed","pri")+B("kept","No, keep it");
+  } else if(band==="LIKELY DONE"){
+    head="The evidence says this is already done"+(a.conf?" — "+a.conf+"% confident":"");
+    body=`<div class="aw">${esc(a.why)}</div>`;
+    btns=B("closed","Close it","pri")+B("kept","No, keep it open");
+  } else {
+    head="I could not tell"+(a.conf?" — "+a.conf+"% confident at best":"");
+    body=`<div class="aw">${esc(a.why)}</div>`;
+    btns=B("kept","Keep it open","pri")+B("closed","It's done — close it")+B("dismissed","Drop it");
+  }
+  const urg=a.urgent_why?`<div class="ado">⏱ ${esc(a.urgent_why)}</div>`:"";
+  return `<div class="abox ${cls}">
+    <div class="alb">🔍 ${esc(head)}</div>${body}${urg}
+    <div class="arow">${btns}<span class="sp"></span>
+      <span class="ruledpill">${esc(a.owner?("audit says "+a.owner+" owns it"):"")}</span></div>
+  </div>`;
+}
+/* Her ruling. "closed" ticks the card, "dismissed" drops it with the audit's own
+   evidence as the written reason the server requires, "kept" leaves the card
+   exactly as it is and only records that she has answered. Every one of them is
+   undoable: rule() is re-callable, and Undo below clears the ruling outright. */
+let LAST_RULING=null;
+function rule(id,verdict){
+  const a=auditOf(id)||{};
+  LAST_RULING={id:id, prevRuled:ruledOf(id), prevDone:!!cs(id).done, prevStatus:cs(id).status};
+  cs(id).auditRuled=verdict;
+  const done=()=>{ renderTriageBanner(); render();
+                   toast(verdict==="kept"?"Kept open — ruled":"Ruled"); };
+  patch(id,{audit_ruled:verdict});
+  if(verdict==="closed"){ setLocalDone(id,true); save(id).then(done); }
+  else if(verdict==="dismissed"){
+    dismiss(id, (a.why||a.urgent_why||"Board audit 2026-09-14: nothing here needs an action.")
+                 .slice(0,400)).then(done).catch(()=>{ cs(id).auditRuled=LAST_RULING.prevRuled;
+                   patch(id,{audit_ruled:LAST_RULING.prevRuled}); render(); });
+  } else { done(); }
+}
+function undoRuling(){
+  if(!LAST_RULING) return;
+  const r=LAST_RULING; LAST_RULING=null;
+  cs(r.id).auditRuled=r.prevRuled||null;
+  patch(r.id,{audit_ruled:r.prevRuled||null});
+  if(cs(r.id).status==="dismissed" && r.prevStatus!=="dismissed"){ undismiss(r.id).then(()=>render()); }
+  if(!!cs(r.id).done!==r.prevDone){ setLocalDone(r.id,r.prevDone); save(r.id).then(()=>render()); }
+  renderTriageBanner(); render(); toast("Ruling undone");
+}
+function resetTriage(){
+  const ruled=ITEMS.filter(i=>auditOf(i.id)&&ruledOf(i.id));
+  if(!ruled.length){ toast("Nothing to reset"); return; }
+  if(!confirm("Put all "+ruled.length+" ruled cards back into Triage?\n\n"
+             +"This clears your rulings only. Cards you CLOSED stay closed and "
+             +"cards you DROPPED stay dropped — untick or restore those yourself.")) return;
+  ruled.forEach(i=>{ cs(i.id).auditRuled=null; patch(i.id,{audit_ruled:null}); });
+  LAST_RULING=null; renderTriageBanner(); render(); toast("Triage reset");
+}
+function renderTriageBanner(){ /* recomputed by render(); kept for callers' clarity */ }
 const sec=(t,n)=>`<div class="sec"><h2>${esc(t)}</h2><span class="cnt">${n}</span><span class="line"></span></div>`;
 function group(b,title,arr){
   if(!arr.length)return;
@@ -1679,6 +2000,14 @@ function card(it){
   if(it.due){ const late=it.due<todayStr();
     tags+=`<span class="t due ${late?"":"soon"}">📅 ${esc(it.due)}${late?" overdue":""}</span>`; }
   if(it.unconfirmed) tags+=`<span class="t unconf">unconfirmed</span>`;
+  /* The verdict travels with the card. She meets it wherever she is working,
+     not only inside Triage — the audit is useless if it lives in one tab. */
+  const _a=auditOf(it.id), _r=ruledOf(it.id);
+  if(_a && _a.verdict){
+    const band=_a.band||_a.verdict;
+    tags+=`<span class="achip ${_r?"ruled":(BAND_CLS[band]||"v-keep")}" title="${esc(_a.why||_a.urgent_why||"")}">🔍 ${esc(_r?(_r==="closed"?"you closed it":"you kept it"):band)}${(_a.conf&&!_r)?" "+_a.conf+"%":""}</span>`;
+  }
+  if(_a && _a.owner) tags+=`<span class="t asg">🔍 → ${esc(_a.owner)}</span>`;
 
   return `<div class="${cls}" id="c-${it.id}" data-id="${it.id}">
     <div class="chead">
@@ -1689,9 +2018,10 @@ function card(it){
           <div class="subj" contenteditable="true" data-subj="${it.id}">${esc(it.subject)}</div>
           <div class="tags">${tags}</div>
         </div>
-        ${it.meta?`<div class="metaline">${esc(it.meta)}</div>`:""}
+        <div class="metaline">${sinceChip(it)}${it.meta?` · ${esc(it.meta)}`:""}</div>
       </div>
     </div>
+    ${auditBlock(it)}
     ${it.action?`<div class="act"><div class="lbl">Your action</div>
        <div class="txt" contenteditable="true" data-act="${it.id}">${esc(it.action)}</div></div>`:""}
     ${waitBlock(it)}
@@ -1704,7 +2034,7 @@ function card(it){
     <div class="crow">
       <button class="mini" data-toggle="${it.id}">▾ Close card</button>
       <select class="mini" data-asg="${it.id}">
-        ${ASG.map(a=>`<option value="${a}" ${((s.assignee||"hadassa")===a)?"selected":""}>${a==="hadassa"?"me":a}</option>`).join("")}
+        ${ASG.map(a=>`<option value="${a}" ${((s.assignee||"hadassa")===a)?"selected":""}>${a[0].toUpperCase()+a.slice(1)}</option>`).join("")}
       </select>
       <select class="mini" data-def="${it.id}">
         <option value="">not deferred</option>
@@ -2127,6 +2457,10 @@ function wire(){
     if(!id) return;
     OPEN.has(id)?OPEN.delete(id):OPEN.add(id); render();
   });
+  document.querySelectorAll("[data-rule]").forEach(el=>el.onclick=ev=>{
+    ev.stopPropagation();   /* the whole card header is a click target */
+    rule(el.getAttribute("data-rule"), el.getAttribute("data-rv"));
+  });
   document.querySelectorAll("[data-toggle]").forEach(el=>el.onclick=()=>{
     const id=el.getAttribute("data-toggle");
     OPEN.has(id)?OPEN.delete(id):OPEN.add(id); render();
@@ -2403,7 +2737,7 @@ function showBulk(){
   document.getElementById("bulkn").textContent=SEL.size;
   b.classList.toggle("show",SEL.size>0);
   const a=document.getElementById("bulkasg");
-  if(a.options.length<2) ASG.forEach(x=>a.add(new Option(x==="hadassa"?"me":x,x)));
+  if(a.options.length<2) ASG.forEach(x=>a.add(new Option(x[0].toUpperCase()+x.slice(1),x)));
   const d=document.getElementById("bulkdef");
   if(d.options.length<2) Object.entries(DEFERS).forEach(([k,v])=>d.add(new Option(v,k)));
 }
