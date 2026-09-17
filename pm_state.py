@@ -1372,6 +1372,12 @@ def history_between(start, end, root=None):
 # Gmail glance was stamped as "gmail, slack" and six items went out wrong.
 REQUIRED_SWEEP_SOURCES = ("gmail", "slack")
 
+# Consecutive sweeps a source may report zero before the board says so out loud.
+# The schedule is 11 runs on weekday business hours, so 6 is over half a working
+# day of total silence from a channel set that carries live job traffic — notable
+# either way. It is a WARNING, never a discard: see pm_sweep_run._unhealthy.
+QUIET_STREAK_WARN = 6
+
 
 def mark_swept(evidence, path=STATE_PATH, now=None):
     """Record a sweep — but only against EVIDENCE, never a bare assertion.
@@ -1392,7 +1398,16 @@ def mark_swept(evidence, path=STATE_PATH, now=None):
     missing = []
     for src in REQUIRED_SWEEP_SOURCES:
         ev = evidence.get(src) or {}
-        if not ev.get("checked") or not (ev.get("detail") or "").strip():
+        # 🔴 2026-09-17: `not ev.get("checked")` made ZERO indistinguishable from
+        # ABSENT, so an honestly-quiet source could not be stamped and the twin
+        # check in pm_sweep_run discarded the whole run. The two facts are
+        # different and need different fields:
+        #   detail  = PROOF the source was actually queried  -> required
+        #   checked = HOW MUCH came back                     -> 0 is a real answer
+        # A source with no `checked` key is still unproven and still refused.
+        n = ev.get("checked")
+        if not isinstance(n, int) or isinstance(n, bool) or n < 0 \
+           or not (ev.get("detail") or "").strip():
             missing.append(src)
     if missing:
         raise ValueError(
@@ -1404,6 +1419,15 @@ def mark_swept(evidence, path=STATE_PATH, now=None):
         state["last_swept_at"] = _now_iso(now)
         state["last_swept_sources"] = sorted(evidence)
         state["last_swept_evidence"] = evidence
+        # The replacement for the old zero-is-death rule. A connector that has
+        # genuinely died returns nothing FOREVER; a quiet afternoon returns nothing
+        # once or twice. So count the streak and SURFACE it — never discard on it.
+        streaks = state.setdefault("quiet_streaks", {})
+        for _s, _e in evidence.items():
+            streaks[_s] = (int(streaks.get(_s) or 0) + 1
+                           if int((_e or {}).get("checked") or 0) == 0 else 0)
+        state["quiet_sources"] = {k: v for k, v in streaks.items()
+                                  if v >= QUIET_STREAK_WARN}
         # A success clears any recorded failure. Without this the red banner
         # outlives the problem and starts crying wolf, which is how a warning
         # becomes something she scrolls past.

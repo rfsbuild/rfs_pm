@@ -324,6 +324,33 @@ def _registry_text():
     return "\n".join(out) or "  (registry empty)"
 
 
+def _unhealthy(counts):
+    """Sources that are genuinely BROKEN — never merely quiet.
+
+    🔴 2026-09-17. This used to be `n <= 0`, and on that day it cost a real run:
+    the 14:05 sweep read 25 Slack channels across 2 pages plus 5 DMs, honestly
+    reported SLACK_OK=0 for a quiet 73 minutes, read 2 Gmail threads, and wrote a
+    VALIDATED briefing of 3 board items + 1 finance lead — and the zero aborted it
+    before the ingest, discarding all four. Her question that surfaced it: *"is it
+    only slack's sweep that's failing? or emails and buildertrend as well?"*
+    Neither was failing.
+
+    THE ORIGINAL WORRY IS REAL and is not being discarded: a connector that breaks
+    silently returns nothing, which from outside looks like a quiet window. But the
+    module docstring already names the mechanism that discriminates — "a MISSING
+    marker is a failure, never a zero" — and STEP 5 of the prompt orders the run to
+    emit the markers "even when the count is 0". The protocol ASKS for a zero and
+    the parser then read it as death. Three things still catch a dead connector:
+    the missing marker (_parse_markers), a negative count (here), and a quiet
+    STREAK (pm_state.QUIET_STREAK_WARN) — and none of the three destroys a good run.
+
+    THE PRINCIPLE: detection must never be implemented as data destruction. A
+    detector that throws away verified work to signal a maybe-problem is worse than
+    the problem, because the loss is certain and the problem is not.
+    """
+    return sorted(s for s, n in counts.items() if n < 0)
+
+
 def _parse_markers(text):
     """(counts, cursors, missing) — an ABSENT marker is not a zero."""
     counts, cursors, missing = {}, {}, []
@@ -528,9 +555,9 @@ def run_sweep(path=None, dry_run=False, open_browser=False, wrap=False):
     if missing:
         return _fail(path, "no result reported by: %s — the run never said what "
                            "it read" % ", ".join(missing), missing)
-    dead = [s for s, n in counts.items() if n <= 0]
+    dead = _unhealthy(counts)
     if dead:
-        return _fail(path, "a required source returned nothing: %s"
+        return _fail(path, "a required source reported an ERROR: %s"
                      % ", ".join(dead), dead)
 
     items, fin_raw = [], []
