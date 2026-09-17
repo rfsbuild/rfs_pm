@@ -1237,6 +1237,9 @@ function boot(){
     if(d.stale_day) rb.textContent="Start "+d.today+" →";
     renderSwept(d);
     render(); setSave("saved");
+    /* Baseline AFTER the data lands, never before: anything that changed while
+       the page was still loading is already on screen. */
+    if(typeof readPulse==="function") readPulse().then(v=>{ if(v){PULSE=v; hideStale();} });
   }).catch(e=>setSave("error",e.message));
 }
 /* ── #5 ── sweep freshness. Reads last_swept_at (when the DATA was gathered), never
@@ -1298,6 +1301,106 @@ function renderSweepFailure(d){
 /* Re-age the chip without a refetch so a tab left open all afternoon stops
    claiming it is fresh. One minute is cheap and it is the whole point. */
 setInterval(()=>{ if(typeof META!=="undefined"&&META) renderSwept(META); },60000);
+
+/* ── THE BOARD WAS FROZEN AT PAGE LOAD ──────────────────────────────────────
+   2026-09-17, hers: "Is pm.rfsbuilders.app reflecting the changes we did in the
+   http://127.0.0.1:8789/? i don't think so." It IS — same process, same
+   pm_state.json, load_state() per request. What was broken is this page: boot()
+   is the ONLY thing that fetches data, and it runs at first paint, on
+   roll-forward and on add-item. Nothing else. So a tab opened in the morning
+   showed the morning's board all day — while the interval above kept RE-AGEING
+   the freshness chip, so it advertised a currency it did not have. A surface
+   that ages its own timestamp without refetching is worse than a plainly stale
+   one, because it looks alive.
+
+   WHY A BANNER AND NOT AN AUTO-REFRESH. This page holds 13 inputs, 4 textareas
+   and 8 contenteditable regions, and save() is debounced 550ms. Re-rendering
+   underneath someone mid-sentence would destroy the answer they were typing —
+   turning a staleness bug into a data-loss bug. So we detect, and let the
+   person choose the moment.
+
+   WHY /healthz. It already exists, is already on the guest allow-list, and
+   carries updated_at + items + done in ~160 bytes. /api/state is 1,291,770
+   bytes — polling THAT every minute would be its own incident. */
+let PULSE=null, PULSE_DISMISSED=null;
+
+function pulseOf(h){ return h ? (h.updated_at+"|"+h.items+"|"+h.done) : null; }
+
+function readPulse(){
+  return fetch("/healthz",{cache:"no-store"})
+    .then(r=>r.ok?r.json():null).then(pulseOf).catch(()=>null);
+}
+
+/* Her OWN writes move updated_at, and a banner that fires at you for your own
+   typing is noise — and noise is what gets ignored, which is the failure this
+   whole block exists to prevent. There are 12 non-GET call sites and no shared
+   helper, so wrap fetch ONCE instead of editing twelve places and missing the
+   thirteenth someone adds later. That omission is this bug's own family. */
+(function(){
+  const raw = window.fetch;
+  window.fetch = function(...a){
+    const req = a[0], opt = a[1] || {};
+    const m = String((opt && opt.method) || (req && req.method) || "GET").toUpperCase();
+    const url = String((req && req.url) || req || "");
+    return raw.apply(this, a).then(res=>{
+      if(m !== "GET" && url.indexOf("/api/") !== -1 && res.ok){
+        /* our own change: adopt it as the new baseline, do not flag it */
+        readPulse().then(v=>{ if(v){ PULSE=v; hideStale(); } });
+      }
+      return res;
+    });
+  };
+})();
+
+function hideStale(){
+  const el=document.getElementById("stalebar");
+  if(el) el.style.display="none";
+}
+
+function showStale(){
+  let el=document.getElementById("stalebar");
+  if(!el){
+    el=document.createElement("div");
+    el.id="stalebar";
+    el.style.cssText="position:fixed;left:0;right:0;bottom:0;z-index:9999;"+
+      "display:flex;gap:12px;align-items:center;justify-content:center;"+
+      "flex-wrap:wrap;padding:10px 14px;background:#1f2937;color:#fff;"+
+      "font:600 13px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;"+
+      "box-shadow:0 -2px 12px rgba(0,0,0,.25)";
+    el.innerHTML=
+      '<span>This board has changed since you opened it &middot; '+
+      '<span style="opacity:.8;font-weight:400">O quadro mudou desde que você abriu</span></span>'+
+      '<button id="stalego" style="font:inherit;padding:6px 14px;border:0;'+
+      'border-radius:7px;background:#fff;color:#1f2937;cursor:pointer">'+
+      'Reload / Recarregar</button>'+
+      '<button id="stalex" style="font:inherit;font-weight:400;padding:6px 10px;'+
+      'border:1px solid rgba(255,255,255,.35);border-radius:7px;background:none;'+
+      'color:#fff;cursor:pointer;opacity:.85">Later / Depois</button>';
+    document.body.appendChild(el);
+    document.getElementById("stalego").onclick=()=>location.reload();
+    /* Dismiss is remembered AGAINST THE VALUE, not forever: the next real
+       change must be able to speak again. A permanent dismiss would re-create
+       exactly the silence this fixes. */
+    document.getElementById("stalex").onclick=()=>{
+      readPulse().then(v=>{ PULSE_DISMISSED=v; hideStale(); });
+    };
+  }
+  el.style.display="flex";
+}
+
+function checkPulse(){
+  if(document.hidden) return;
+  readPulse().then(v=>{
+    if(!v) return;                       /* unreachable server: say nothing */
+    if(PULSE===null){ PULSE=v; return; } /* first read is the baseline */
+    if(v!==PULSE && v!==PULSE_DISMISSED) showStale();
+  });
+}
+
+setInterval(checkPulse, 45000);
+/* The common case is a tab he switched away from and came back to. Checking on
+   return is what makes this feel immediate instead of up-to-45-seconds late. */
+document.addEventListener("visibilitychange",()=>{ if(!document.hidden) checkPulse(); });
 
 function rollForward(){
   if(!confirm("Start a new day?\n\nCompleted items drop off the board, everything still open ages by a day, and anything deferred 3+ days moves to Urgent."))return;
