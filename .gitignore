@@ -31,3 +31,9 @@ ctx/
 # Today's copy happens to be 88 bytes; that is timing, not safety. Added 2026-08-03,
 # found untracked-but-not-ignored at the Monday re-ground -- same shape as history/.
 last_sweep_output.txt
+
+# Backup files with a HYPHEN stamp (e.g. pm_server.py.bak-20260915-084239-preallowlist).
+# Added 2026-09-17: lines 7-8 cover `*.bak` and `*.bak_*` only, so the hyphen
+# form was UNIGNORED — four snapshots of the internet-facing server code sat
+# untracked and one `git add -A` from origin. Same gap existed in rfs_dashboard.
+*.bak-*
