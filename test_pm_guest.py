@@ -3,10 +3,14 @@
 
 Two independent gates, tested independently:
   GATE 1 — identity. No verified Cloudflare Access JWT → 403, on EVERY route.
-  GATE 2 — route.    Even WITH a verified identity, only the append-only answer
-                     route may be written. The click endpoint would record
-                     `done_by: "hadassa"` (pm_state.py:1163), so a guest reaching
-                     it would forge her completion.
+  GATE 2 — route.    Even WITH a verified identity, only the two answering
+                     routes may be written: the append-only update stream and
+                     the click endpoint. UPDATED 2026-09-18 (her ruling): the
+                     click route is now OPEN to a guest, because apply_click()
+                     takes an `actor` and stores done_by = that actor instead of
+                     a hardcoded "hadassa". GATE 2e pins the pair together — if
+                     anyone re-hardcodes done_by, opening this route becomes a
+                     forgery again and that gate goes red.
 
 Gate 2 is tested by substituting the verifier, because minting a real Cloudflare
 signature is not possible here. That substitution is the POINT: it proves the
@@ -68,7 +72,9 @@ check("GET /api/state   (cards load)", req(PORT_B, "GET", "/api/state"), 200)
 check("POST /api/item/abc/update  reaches the board (400 = validated, not gated)",
       req(PORT_B, "POST", "/api/item/abc/update"), 400)
 # everything else must be refused even though he is who he says he is
-for m, p in [("POST", "/api/item/abc"), ("POST", "/api/item/abc/patch"),
+check("POST /api/item/abc  (click route, now guest-writable) reaches the board",
+      req(PORT_B, "POST", "/api/item/abc"), 404)   # 404 = no such item, i.e. NOT gated
+for m, p in [("POST", "/api/item/abc/patch"),
              ("POST", "/api/roll"), ("POST", "/api/item/abc/waiting/update"),
              ("POST", "/api/item/abc/delete"), ("GET", "/api/items")]:
     check("%s %s" % (m, p), req(PORT_B, m, p), 403)
@@ -122,6 +128,35 @@ with _u.urlopen("http://127.0.0.1:%d/api/state" % PORT_B, timeout=6) as r:
 check("LIVE guest /api/state withholds them", len(body.get("items", [])), len(full["items"]) - n_priv)
 check("LIVE guest /api/state carries no private card",
       [i for i in body.get("items", []) if i.get("private")], [])
+
+print("\nGATE 2e — a guest tick is stored as the GUEST, never as her")
+# This gate is the reason GATE 2 may safely let a guest reach the click route.
+# It runs against a TEMP state file on purpose: the listener under test is bound
+# to the REAL pm_state.json, and a test must never tick a card on her live board.
+import tempfile, shutil
+import pm_state as S
+_tmpdir = tempfile.mkdtemp()
+_tmp = os.path.join(_tmpdir, "pm_state.json")
+json.dump({"items": [{"id": "gate2e", "subject": "t", "status": "open",
+                      "done_at": None, "done_by": None, "updates": []}]},
+          open(_tmp, "w"))
+S.apply_click("gate2e", {"done": True}, path=_tmp, actor="rafael@rfsbuilders.com")
+_it = json.load(open(_tmp))["items"][0]
+check("a guest tick records the GUEST as done_by", _it.get("done_by"), "rafael@rfsbuilders.com")
+S.apply_click("gate2e", {"done": False}, path=_tmp, actor="rafael@rfsbuilders.com")
+S.apply_click("gate2e", {"done": True}, path=_tmp)          # default caller = her board
+_it = json.load(open(_tmp))["items"][0]
+check("her own tick still records hadassa (default unchanged)", _it.get("done_by"), "hadassa")
+shutil.rmtree(_tmpdir, ignore_errors=True)
+# And the wiring: the guest handler must hand that actor over, or the gate above
+# is true in isolation and false in production.
+class _FakeGuest(P.GuestHandler):
+    def __init__(self): pass
+    def _who(self): return "rafael@rfsbuilders.com"
+check("GuestHandler._actor() yields the guest e-mail", _FakeGuest()._actor(), "rafael@rfsbuilders.com")
+check("the click call site passes an actor",
+      "S.apply_click(iid, body, actor=self._actor())" in open(
+          os.path.join(os.path.dirname(os.path.abspath(__file__)), "pm_server.py")).read(), True)
 
 print("\nGATE 3 — the served page carries the answer-mode shim, not a bare board")
 try:

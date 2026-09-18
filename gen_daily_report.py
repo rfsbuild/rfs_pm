@@ -224,6 +224,24 @@ def _report_subject(it):
     return s or (it.get("subject") or "").strip()
 
 
+def _is_hers(actor):
+    """Is this line HER work? Added 2026-09-18.
+
+    Her scope for this report, verbatim on 2026-07-30: "this is about ME, MY
+    work for the entire day, NOT Rafael, NOT anyone else." The completion filter
+    honoured that from the start, but the UPDATE lines never did — they were
+    printed whenever the CARD passed, regardless of who wrote them. From the day
+    Rafael got write access (2026-09-14) that leaked his notes into her diary:
+    on 2026-09-18 it was 12 lines, in Portuguese, under "things you did".
+
+    A blank actor counts as hers on purpose. `by` was only stored from the guest
+    listener onward, so every older line genuinely was her own — 64 of the 81
+    lines on the board predate the field. This is the one place a blank may
+    default to her, and only because the history makes it true.
+    """
+    return (actor or "hadassa") == "hadassa"
+
+
 def _acted_today(it, day):
     """Did SHE act on this card on `day`?
 
@@ -283,9 +301,11 @@ def pm(st, day):
         i for i in items
         if (i.get("project") or "No project") not in EXCLUDED_PROJECTS
         and _acted_today(i, day)
-        # Work Claude finished is not her work. `done_by` is set to "claude"
-        # only by the delegation path, so this cannot mis-drop her own cards.
-        and (i.get("done_by") or "hadassa") == "hadassa"
+        # Work someone else finished is not her work. Same helper as the update
+        # lines below, so the two halves of "hers" can never drift apart.
+        # Since 2026-09-18 done_by also carries a GUEST e-mail (Rafael closing a
+        # card), not just "claude" — _is_hers covers both without listing actors.
+        and _is_hers(i.get("done_by"))
     ]
 
     by = defaultdict(list)
@@ -321,6 +341,9 @@ def pm(st, day):
         seen = set()
         for u in (i.get("updates") or []):
             if (u.get("at") or "")[:10] != day:
+                continue
+            # Someone else's note on a card of hers is not her work — see _is_hers.
+            if not _is_hers(u.get("by")):
                 continue
             txt = (u.get("text") or "").strip()
             if not txt or txt in seen:

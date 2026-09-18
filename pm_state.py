@@ -1142,7 +1142,7 @@ def add_update(item_id, text, kind="update", set_did=False, by="hadassa",
     return _mutate(_fn, path, now)[1]
 
 
-def apply_click(item_id, payload, path=STATE_PATH, now=None):
+def apply_click(item_id, payload, path=STATE_PATH, now=None, actor="hadassa"):
     """Apply a whole UI interaction in ONE locked write.
 
     The UI sends the item's full click-state on every change. Doing that as
@@ -1178,11 +1178,17 @@ def apply_click(item_id, payload, path=STATE_PATH, now=None):
             if want != (it.get("status") == "done"):
                 it["status"] = "done" if want else "open"
                 it["done_at"] = _now_iso(now) if want else None
-                # A tick in the UI is HER completion. complete_by_claude() is the
-                # only path that sets done_by="claude", so nothing Claude did can
-                # ever be silently credited to her, and nothing she did can be
-                # credited to Claude.
-                it["done_by"] = "hadassa" if want else None
+                # A tick is recorded against WHOEVER made it. complete_by_claude()
+                # is still the only path that sets done_by="claude", so nothing
+                # Claude did can ever be silently credited to a person, and
+                # nothing a person did can be credited to Claude.
+                # WHO ticked it. Was hardcoded "hadassa" until 2026-09-18, which is
+                # why the guest listener had to block this route outright — a
+                # guest tick would have been recorded as HER completion. Now the
+                # caller names the actor, so Rafael closing a card is stored as
+                # Rafael and the board stops needing to lie about it.
+                # Default stays "hadassa": every existing caller is her own board.
+                it["done_by"] = (actor or "hadassa") if want else None
                 if want:   # completing something clears a prior dismissal
                     it["dismiss_reason"] = None
                     it["dismissed_at"] = None

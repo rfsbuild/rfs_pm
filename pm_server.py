@@ -245,7 +245,10 @@ class Handler(BaseHTTPRequestHandler):
         and it MUST, because /api/item/<id>/update is the one route Rafael can
         write to. Taking the author from the request body instead would let a
         guest's answer be stored as hers, which is the attribution law this board
-        is built on (pm_state.py: done_by "hadassa" means SHE did it)."""
+        is built on. UPDATED 2026-09-18: the guest may now write TWO routes —
+        /api/item/<id>/update and the click endpoint /api/item/<id> — and this
+        actor is what keeps that honest, because apply_click() now stores
+        done_by = actor instead of a hardcoded "hadassa"."""
         return "hadassa"
 
     def _body(self):
@@ -408,7 +411,7 @@ class Handler(BaseHTTPRequestHandler):
                 iid = rest[: -len("/delete")]
                 return self._send(200, {"ok": bool(S.remove_item(iid))})
             iid = rest
-            res = S.apply_click(iid, body)
+            res = S.apply_click(iid, body, actor=self._actor())
             if res is None:
                 return self._send(404, {"error": "no such item"})
             return self._send(200, res)
@@ -422,12 +425,13 @@ class GuestHandler(Handler):
     Two gates, and the ORDER matters: identity first, then route. A 403 for an
     unknown caller must never depend on which path they asked for.
 
-    WRITE SURFACE: exactly one route — POST /api/item/<id>/update, the
-    append-only update stream. Deliberately NOT the click endpoint: a tick in
-    this UI is recorded as `done_by: "hadassa"` (pm_state.py:1163, "a tick in
-    the UI is HER completion"), so a guest click would forge her completion.
-    Blocking the route is what makes that line safe to leave alone. /patch and
-    /api/roll are blocked for the same reason — neither is answering.
+    WRITE SURFACE: two routes — POST /api/item/<id>/update (the append-only
+    update stream) and POST /api/item/<id> (the click endpoint). The click route
+    was blocked until 2026-09-18 because apply_click() hardcoded
+    `done_by: "hadassa"`, so a guest tick forged her completion. The fix is at
+    the source: apply_click now takes an `actor` and this handler passes the
+    Access-verified e-mail, so a guest completion is stored as the guest.
+    /patch, /api/roll and /waiting/* stay blocked — none of those is answering.
     """
 
     GUEST_GET = ("/", "/index.html", "/healthz", "/api/state", "/api/history")
@@ -491,8 +495,19 @@ class GuestHandler(Handler):
         # The ONLY writable route. Note the explicit /update suffix test: the
         # waiting stream also ends in "/update" and must NOT be reachable, so
         # this matches the whole shape rather than the tail.
-        if not re.match(r"\A/api/item/[^/]+/update\Z", path):
-            return self._deny("POST %s is not the answer route" % path)
+        # TWO writable routes since 2026-09-18 (HER ruling, incl. "yes" to a guest
+        # closing cards flagged HERS):
+        #   /api/item/<id>/update  — the append-only answer stream
+        #   /api/item/<id>         — the click endpoint (tick / defer / dismiss)
+        # The click route was blocked until today for ONE reason: apply_click()
+        # hardcoded done_by="hadassa", so a guest tick forged her completion.
+        # That is fixed at the source (pm_state.py apply_click(actor=...)) and the
+        # actor passed here is the Access-verified e-mail, so the board now records
+        # WHO closed it. Opening the route without that fix would re-create the
+        # forgery this listener existed to prevent — keep them together.
+        # Still refused: /patch, /api/roll, /waiting/* — none of those are answering.
+        if not re.match(r"\A/api/item/[^/]+(/update)?\Z", path):
+            return self._deny("POST %s is not a guest-writable route" % path)
         print("[pm-guest] answer on %s by %s" % (path, who), flush=True)
         return Handler.do_POST(self)
 
@@ -508,15 +523,20 @@ def _guest_shim(email):
   #pm-guest-bar b{font-weight:700}
 </style>
 <div id="pm-guest-bar"><span><b>Modo resposta</b> — escreva a resposta em
-  "Add an update". Marcar concluido fica com a Hadassa.</span><span>%s</span></div>
+  "Add an update" e marque como concluido quando terminar. Fica registrado no seu
+  nome, com a hora.</span><span>%s</span></div>
 <script>
 (function(){
-  window.PM_GUEST = {email: "%s", readonly: true};
+  window.PM_GUEST = {email: "%s", readonly: false};
   var _f = window.fetch;
   window.fetch = function(u, o){
     var url = String(u && u.url ? u.url : u);
     var m = (o && o.method ? o.method : "GET").toUpperCase();
-    var ok = /^\/api\/item\/[^\/]+\/update$/.test(url.split("?")[0]);
+    /* Mirrors GuestHandler.do_POST exactly — the server is the control, this
+       only avoids showing a button that would 403. TWO routes since 2026-09-18:
+       the update stream and the click endpoint. Kept as ONE regex so the two
+       cannot drift apart. */
+    var ok = /^\/api\/item\/[^\/]+(\/update)?$/.test(url.split("?")[0]);
     if (m === "POST" && !ok) {
       return Promise.resolve(new Response(
         JSON.stringify({error:"read-only"}), {status:403,

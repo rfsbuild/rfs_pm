@@ -173,6 +173,10 @@ a{color:var(--brand-deep);}
 .drow .dwho{padding:1px 7px;border-radius:20px;background:var(--rule-soft);
   border:1px solid var(--rule);font-weight:650;}
 .drow .dwho.cl{background:#eceffe;border-color:#c9d0fb;color:#3c46a8;}
+/* No recorded actor. Deliberately the quietest state on the row — it is the
+   ABSENCE of a fact, and it must not look like a person standing there. */
+.drow .dwho.anon{background:transparent;border-style:dashed;font-weight:400;
+  font-style:italic;color:var(--faint);}
 @media(max-width:640px){
   .drow{margin-left:18px;flex-wrap:wrap;}
   .dproj{margin-left:12px;width:calc(100% - 12px);}
@@ -320,6 +324,13 @@ a{color:var(--brand-deep);}
 .wlog li{font-size:13px;line-height:1.45;color:var(--body);padding:2px 0;}
 .wlog li .lt{color:var(--faint);font-size:11.5px;font-variant-numeric:tabular-nums;
   margin-right:7px;white-space:nowrap;}
+/* WHO wrote the line. Sits between the time and the text so the log scans as
+   "when · who · what". Weight, not colour, carries the name — the log is read in
+   a column and a second colour would fight the time stamp. "unattributed" is
+   deliberately quiet and italic: it is the absence of a fact, not a person. */
+.wlog li .lby{font-size:11.5px;font-weight:600;color:var(--body);
+  margin-right:7px;white-space:nowrap;}
+.wlog li .lby.anon{font-weight:400;font-style:italic;color:var(--faint);}
 .wlog li:last-child{color:var(--ink);}
 .wlog .none{font-size:12.5px;color:var(--muted);font-style:italic;}
 .wadd{display:flex;gap:6px;align-items:center;margin-top:9px;flex-wrap:wrap;}
@@ -1572,13 +1583,13 @@ function doneRecords(scope){
   ITEMS.filter(i=>isDone(i.id)).forEach(i=>{
     const s=cs(i.id); seen.add(i.id);
     out.push({id:i.id,subject:i.subject,project:i.project,did:s.did,note:s.note,
-              by:s.done_by||"hadassa",at:String(s.done_at||"").slice(0,10),live:true,
+              by:s.done_by||null,at:String(s.done_at||"").slice(0,10),live:true,
               item:i});
   });
   if(scope!=="today") HIST.forEach(r=>{
     if(!r||seen.has(r.id)) return; seen.add(r.id);
     out.push({id:r.id,subject:r.subject,project:r.project,did:r.did,note:r.note,
-              by:r.done_by||"hadassa",
+              by:r.done_by||null,
               at:String(r.done_at||r.day||"").slice(0,10),live:false,
               item:histToUi(r)});
   });
@@ -1660,9 +1671,23 @@ function dExpand(id){
   else { DEXP.add(id); OPEN.add(id); }
   render();
 }
+/* One place that turns a stored actor into a readable name. An e-mail shows its
+   local part capitalised (rafael@rfsbuilders.com -> Rafael), so the log reads as
+   people, not addresses. Returns "unattributed" for a blank — see dRows() note. */
+function uWho(by){
+  if(!by) return "unattributed";
+  if(by==="claude") return "Claude";
+  if(by==="hadassa") return "Hadassa";
+  const local=String(by).split("@")[0].replace(/[._-]+/g," ").trim();
+  return local ? local.split(" ").map(w=>w[0].toUpperCase()+w.slice(1)).join(" ") : String(by);
+}
 function dRows(rows){
   return rows.map(r=>{
-    const who=r.by==="claude"?"Claude":((r.by==="hadassa"||!r.by)?"Hadassa":(r.by[0].toUpperCase()+r.by.slice(1)));
+    /* WHO closed it. Until 2026-09-18 a MISSING actor rendered as "Hadassa" —
+       an absent fact displayed as her completion, which is the very forgery the
+       done_by law exists to stop. Now it says "unattributed", and uWho() is the
+       single formatter shared with the work log so the two screens cannot drift. */
+    const who=uWho(r.by);
     const key=encodeURIComponent(r.id), isOpen=DEXP.has(r.id);
     const hasCtx=!!(r.item && (r.item.ctxSum || (r.item.ctxBody||[]).length
                    || r.item.ctxHappened || r.item.ctxMatters || r.item.ctxNeeded
@@ -1677,7 +1702,7 @@ function dRows(rows){
         +(r.note?`<div class="dnote">Your note: ${esc(r.note)}</div>`:"")
       +`</div>`
       +`<span class="dmeta">${dShortDate(r.at)}`
-        +`<span class="dwho${r.by==="claude"?" cl":""}">${esc(who)}</span>`
+        +`<span class="dwho${r.by==="claude"?" cl":""}${r.by?"":" anon"}">${esc(who)}</span>`
         +`<span class="dopen">${isOpen?"hide":(hasCtx?"open":"no context kept")}</span></span>`
     +`</div>`
     /* Rendered OUTSIDE the clickable row so clicks inside the card (a link, the
@@ -2328,7 +2353,16 @@ function updBlock(it){
   const lines=log.map(e=>{
     const when=esc((e.at||"").slice(5,16).replace("T"," "));
     const tag=e.kind==="done"?`<span class="uk">did</span>`:"";
-    return `<li><span class="lt">${when}</span>${tag}${esc(e.text)}</li>`;
+    /* WHO wrote it. Added 2026-09-18 — `by` has been STORED on every line since
+       the guest listener shipped, and was never rendered, so the log answered
+       "what and when" but not "who". Rafael writing on the same cards she does
+       is exactly the case that needs it.
+       A blank `by` renders "unattributed", NEVER her name: 64 of 81 existing
+       lines predate authorship, and defaulting them to "Hadassa" would invent an
+       attribution. (The done-list at dRows() still does exactly that — logged as
+       a separate defect, not fixed here.) */
+    return `<li><span class="lt">${when}</span><span class="lby${e.by?"":" anon"}"
+            >${esc(uWho(e.by))}</span>${tag}${esc(e.text)}</li>`;
   }).join("");
   const logHtml = log.length
     ? `<ul class="wlog">${lines}</ul>`
