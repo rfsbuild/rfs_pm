@@ -162,6 +162,14 @@ ITEM_FIELDS = (
     "unconfirmed", "is_new", "moved", "age", "due",
     "status", "done_at", "defer", "defer_days", "assignee", "note", "followup",
     "dismiss_reason", "dismissed_at",
+    # WHO dismissed it (2026-09-21). The `done` path has recorded an actor since
+    # 2026-09-18, but the dismiss path recorded nobody — so on 2026-09-21, 18 of
+    # the 100 cards closed that day were unattributable. On a board whose whole
+    # point is that done_by="hadassa" proves SHE clicked, a close path that names
+    # no one cannot support the daily report's claim to be a record of HER day.
+    # Kept SEPARATE from done_by on purpose: a dismissal is not a completion, and
+    # the report already excludes dismissals from its denominator.
+    "dismissed_by",
     "first_seen", "last_seen",
     # `did` = what SHE actually did about this, in her voice. The daily report
     # is a record of her actions, not a status board, so a card with no `did`
@@ -415,7 +423,7 @@ def new_item(id, subject, **kw):
         "moved": None, "age": 0, "due": None,
         "status": "open", "done_at": None, "defer": None, "defer_days": 0,
         "assignee": None, "note": None, "followup": None,
-        "dismiss_reason": None, "dismissed_at": None,
+        "dismiss_reason": None, "dismissed_at": None, "dismissed_by": None,
         "first_seen": None, "last_seen": None,
         # `did` was added to ITEM_FIELDS on 2026-07-28 but not here, so no item
         # created through new_item carried the key — and because normalize()
@@ -1199,11 +1207,15 @@ def apply_click(item_id, payload, path=STATE_PATH, now=None, actor="hadassa"):
                 it["status"] = "dismissed"
                 it["dismiss_reason"] = reason
                 it["dismissed_at"] = _now_iso(now)
+                # Same actor contract as the `done` path below. Default "hadassa"
+                # because every existing caller is her own board.
+                it["dismissed_by"] = actor or "hadassa"
                 it["done_at"] = None
             else:
                 it["status"] = "open"
                 it["dismiss_reason"] = None
                 it["dismissed_at"] = None
+                it["dismissed_by"] = None
         if "done" in payload:
             want = bool(payload["done"])
             if want != (it.get("status") == "done"):

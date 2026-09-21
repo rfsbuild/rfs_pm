@@ -175,6 +175,25 @@ def transient_error(text, returncode=0):
     return None
 
 
+def _meaningful_tail(text, n=400):
+    """The tail of a run's output, with the CLI's own startup lint removed.
+
+    🔴 2026-09-21. Three timed-out sweeps in one day all recorded the reason
+    "Permission ask rule (../.claude/settings.json): Write(transaction_db.json)
+    is not matched by file permission checks". The sweep does not write financial
+    state at all — those are settings-lint warnings the CLI prints at STARTUP,
+    and they were simply the last thing in the buffer. The real cause, sitting in
+    logs/failed_sweeps/, was `API Error: 529 Overloaded`. A tail that reports
+    whatever printed last will impersonate a diagnosis, and this file's own header
+    already records one weekend lost to exactly that.
+    """
+    lines = [ln for ln in (text or "").splitlines()
+             if not ln.startswith(("Permission allow rule", "Permission ask rule",
+                                   "Permission deny rule"))]
+    kept = "\n".join(lines).strip()
+    return (kept or "(no output beyond CLI startup warnings)")[-n:].replace("\n", " ⏎ ")
+
+
 def _keep_output(text, attempt=1):
     """Write LOG_PATH (unchanged contract) AND retain a rotated copy."""
     try:
@@ -615,9 +634,16 @@ def run_sweep(path=None, dry_run=False, open_browser=False, wrap=False):
                     else (exc.stderr or b"").decode("utf-8", "replace"))
             tail = ((partial + "\n" + perr).strip() or "(the run produced no output at all)")
             _keep_output(tail, attempt=_try + 1)
-            return _fail(path, "the sweep timed out after %ds — last output: %s"
-                         % (TIMEOUT_S, tail[-400:].replace("\n", " ⏎ ")),
-                         list(S.REQUIRED_SWEEP_SOURCES))
+            # An API error inside a timed-out run IS the diagnosis. Lead with it;
+            # the tail goes after, and only once the CLI's startup lint is stripped.
+            _api = transient_error(tail, 0)
+            _reason = ("the sweep timed out after %ds — and the run had already hit a "
+                       "TRANSIENT API ERROR: %s (this is the cause; the tail below is "
+                       "context, not a diagnosis) — last output: %s"
+                       % (TIMEOUT_S, _api, _meaningful_tail(tail))) if _api else (
+                       "the sweep timed out after %ds with no API error in its output — "
+                       "last output: %s" % (TIMEOUT_S, _meaningful_tail(tail)))
+            return _fail(path, _reason, list(S.REQUIRED_SWEEP_SOURCES))
         except FileNotFoundError:
             return _fail(path, "the `%s` CLI is not on PATH — a LaunchAgent does "
                                "not inherit your shell profile" % CLAUDE_BIN,
