@@ -45,7 +45,8 @@ import os
 import re
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
 import pm_state as S  # noqa: E402
 
 # Fields a collector owns and may refresh on re-ingest. Mirrors
@@ -135,6 +136,51 @@ _CHASE_RE = re.compile(
     r"\b(?:" + "|".join(CHASE_VERBS) + r")\s+(?:the\s+|him|her|them|rafael|"
     r"alice|bob|paula|ray|gerson|luis|teresa|charles|eliezer|[A-Z])",
     re.IGNORECASE)
+
+
+# ── D17 (Hadassa, 2026-09-21): LOGIN CODES NEVER BECOME CARDS ────────────────
+# Her words, on two separate cards the same day:
+#   rbaadmin Cloudflare codes → "Yes, me - no need to open cards ever because of
+#                                these ones."
+#   Citizens one-time passcodes → "Me - don't put this on cards as well."
+#
+# This is a STRUCTURAL gate at the single chokepoint every card passes through,
+# NOT a line of guidance in a sweep prompt. A rule that lives only in a prompt is
+# not a control — it is a suggestion a model can talk itself out of, and the whole
+# point of her ruling is that she never sees these again.
+#
+# Suppressed items are NOT silently destroyed: each is appended to
+# logs/suppressed_login_codes.jsonl and counted in the ingest summary, so the
+# signal survives for an audit without costing her a card. That is the line her
+# ruling draws — no CARDS, not no RECORD.
+LOGIN_CODE_RE = re.compile(
+    r"one[\s-]?time\s+pass(?:code|word)"
+    r"|verification\s+code"
+    r"|login\s+code"
+    r"|security\s+code"
+    r"|access\s+code"
+    r"|your\s+code\s+is"
+    r"|\bOTP\b"
+    r"|two[\s-]?factor"
+    r"|\b2FA\b"
+    r"|cloudflare\s+access"
+    r"|confirm\s+your\s+identity"
+    r"|is\s+your\s+.{0,24}code",
+    re.I)
+
+
+def is_login_code(item):
+    """True when a card is only reporting an authentication code arriving.
+
+    Reads the fields a sweep actually fills — subject, meta, summary, body —
+    because the giveaway phrase lands in whichever one the collector chose.
+    """
+    parts = [item.get("subject") or "", item.get("meta") or "",
+             item.get("ctx_sum") or ""]
+    body = item.get("ctx_body") or []
+    if isinstance(body, list):
+        parts += [str(b) for b in body]
+    return bool(LOGIN_CODE_RE.search(" \n ".join(parts)))
 
 
 def is_chase(item):
@@ -288,6 +334,22 @@ def validate(items, existing=None):
 def ingest(items, path=S.STATE_PATH, now=None):
     """Upsert every item in ONE locked transaction. Returns a summary dict."""
     _st, _ = S.load_state(path)
+
+    # D17 — drop authentication-code items before anything else looks at them.
+    # Done here rather than in validate() because these are not INVALID briefings;
+    # they are valid items she has ruled must never become cards.
+    suppressed = [it for it in items if isinstance(it, dict) and is_login_code(it)]
+    if suppressed:
+        items = [it for it in items if it not in suppressed]
+        try:
+            os.makedirs(os.path.join(HERE, "logs"), exist_ok=True)
+            with open(os.path.join(HERE, "logs", "suppressed_login_codes.jsonl"), "a") as f:
+                for it in suppressed:
+                    f.write(json.dumps({"at": S._now_iso(now), "id": it.get("id"),
+                                        "subject": it.get("subject")}) + "\n")
+        except Exception:
+            pass          # a logging failure must never block the ingest
+
     errs = validate(items, {i["id"]: i for i in _st["items"]})
     if errs:
         raise ValueError("briefing is invalid, nothing was written:\n  - "
@@ -328,7 +390,8 @@ def ingest(items, path=S.STATE_PATH, now=None):
                     existing["lane"] = spec["lane"]
                 existing["last_seen"] = S._now_iso(now)
                 updated.append(spec["id"])
-        return {"added": added, "updated": updated, "trimmed": trimmed}
+        return {"added": added, "updated": updated, "trimmed": trimmed,
+                "suppressed_login_codes": [i.get("id") for i in suppressed]}
 
     return S._mutate(_fn, path, now)[1]
 
