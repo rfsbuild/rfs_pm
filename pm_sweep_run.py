@@ -113,6 +113,85 @@ TIMEOUT_S = int(os.environ.get("PM_SWEEP_TIMEOUT", "1200"))
 # and an unbounded log on a job that fires 19×/day is its own problem.
 LOG_PATH = ROOT / "last_sweep_output.txt"
 
+# ── transient API failures: RETRY, and never blame the connectors ─────────
+# 🔴 2026-09-21. The sweep died 24 consecutive times (Fri 16:00 -> Mon 07:45) and
+# the recorded reason every time was "no result reported by: gmail, slack - the
+# run never said what it read". That reason was WRONG, and it pointed at the
+# wrong system. A reproduction at 08:34 left this output, in full:
+#
+#     API Error: 529 Overloaded. This is a server-side issue, usually temporary
+#     - try again in a moment.
+#
+# Neither connector was involved. The subprocess exited CLEANLY, printed an API
+# error, emitted no markers, and fell through to the generic missing-marker
+# branch - which names gmail and slack because those are the REQUIRED sources,
+# not because either was asked anything. The banner then sent whoever read it to
+# audit Slack permissions, and a live card about unreadable Slack channels made
+# that misreading feel confirmed.
+#
+# Two defects, one line apart:
+#   1. A 529 says "try again in a moment" and nothing ever tried again. The next
+#      attempt was the next scheduled poll, 30-60 minutes later.
+#   2. `proc.returncode` was never read, so a non-zero exit was
+#      indistinguishable from a clean run that happened to say nothing.
+#
+# RETRY ONLY WHEN THE ATTEMPT EARNED NOTHING. An attempt that produced markers
+# is a real result and is never thrown away to try for a better one - the
+# 2026-09-17 rule (detection must not be implemented as data destruction)
+# applied to retries.
+_TRANSIENT_RE = re.compile(
+    r"API Error:\s*(?:429|500|502|503|504|529)\b"
+    r"|\boverloaded_error\b"
+    r"|\bOverloaded\b"
+    r"|\brate[_ ]limit(?:_error)?\b"
+    r"|\bserver-side issue\b",
+    re.I)
+
+# Short on purpose: this job fires 19x/day and a cold sweep already costs ~12
+# minutes. Two extra attempts at 20s and 60s cover a transient blip without
+# letting one bad window eat the next poll's slot.
+RETRY_BACKOFF_S = [int(x) for x in
+                   os.environ.get("PM_SWEEP_BACKOFF", "20,60").split(",") if x.strip()]
+
+# The last N failed outputs, not the last 1. LOG_PATH being a single overwritten
+# file is why the weekend's 24 failures could not be diagnosed on Monday: the
+# 08:00 run that finally succeeded destroyed the evidence of the ones that had
+# not. Kept small - this is a diagnosis aid, not an archive.
+FAIL_DIR = ROOT / "logs" / "failed_sweeps"
+FAIL_KEEP = 12
+
+
+def transient_error(text, returncode=0):
+    """The one-line reason this attempt is worth retrying, or None.
+
+    Reads the OUTPUT, not the exit code alone: the CLI exits 0 while printing
+    `API Error: 529`, so a returncode check by itself sees a healthy run.
+    """
+    m = _TRANSIENT_RE.search(text or "")
+    if m:
+        return m.group(0)
+    if returncode not in (0, None):
+        return "the CLI exited %s" % returncode
+    return None
+
+
+def _keep_output(text, attempt=1):
+    """Write LOG_PATH (unchanged contract) AND retain a rotated copy."""
+    try:
+        LOG_PATH.write_text(text)
+    except Exception:
+        pass
+    try:
+        FAIL_DIR.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        (FAIL_DIR / ("%s_try%d.txt" % (stamp, attempt))).write_text(text)
+        old = sorted(FAIL_DIR.glob("*.txt"))[:-FAIL_KEEP]
+        for f in old:
+            f.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
 # ANCHORED to line starts, deliberately. An unanchored SLACK_OK=(-?\d+) is
 # satisfied by any *prose sentence* that happens to mention a count — which is
 # exactly what happened on 2026-07-30: run 3 wrote "Run 3's result: SLACK_OK=51
@@ -516,40 +595,58 @@ def run_sweep(path=None, dry_run=False, open_browser=False, wrap=False):
     # Stamped BEFORE the call: this is the conservative fallback watermark for
     # any source the run forgets to report a cursor for. See _fallback_cursor.
     started_at = time.time()
-    try:
-        proc = subprocess.run([CLAUDE_BIN, "-p", prompt], capture_output=True,
-                              text=True, timeout=TIMEOUT_S, cwd=str(ROOT))
-        text = (proc.stdout or "") + "\n" + (proc.stderr or "")
-    except subprocess.TimeoutExpired as exc:
-        # Keep whatever the run had already produced. Discarding it made the
-        # first real timeout (2026-07-30 16:35) completely undiagnosable: the
-        # failure said "timed out" and nothing else, so there was no way to tell
-        # a stuck connector from a run that was simply still working. The
-        # markers are printed LAST, so a timed-out run has no counts — but the
-        # tail shows how far it got, which is the whole question.
-        partial = ((exc.stdout or "") if isinstance(exc.stdout, str)
-                   else (exc.stdout or b"").decode("utf-8", "replace"))
-        perr = ((exc.stderr or "") if isinstance(exc.stderr, str)
-                else (exc.stderr or b"").decode("utf-8", "replace"))
-        tail = ((partial + "\n" + perr).strip() or "(the run produced no output at all)")
+    attempts, text, rc = [], "", 0
+    for _try in range(len(RETRY_BACKOFF_S) + 1):
         try:
-            LOG_PATH.write_text(tail)
-        except Exception:
-            pass
-        return _fail(path, "the sweep timed out after %ds — last output: %s"
-                     % (TIMEOUT_S, tail[-400:].replace("\n", " ⏎ ")),
-                     list(S.REQUIRED_SWEEP_SOURCES))
-    except FileNotFoundError:
-        return _fail(path, "the `%s` CLI is not on PATH — a LaunchAgent does "
-                           "not inherit your shell profile" % CLAUDE_BIN,
-                     list(S.REQUIRED_SWEEP_SOURCES))
+            proc = subprocess.run([CLAUDE_BIN, "-p", prompt], capture_output=True,
+                                  text=True, timeout=TIMEOUT_S, cwd=str(ROOT))
+            text = (proc.stdout or "") + "\n" + (proc.stderr or "")
+            rc = proc.returncode
+        except subprocess.TimeoutExpired as exc:
+            # Keep whatever the run had already produced. Discarding it made the
+            # first real timeout (2026-07-30 16:35) completely undiagnosable: the
+            # failure said "timed out" and nothing else, so there was no way to tell
+            # a stuck connector from a run that was simply still working. The
+            # markers are printed LAST, so a timed-out run has no counts — but the
+            # tail shows how far it got, which is the whole question.
+            partial = ((exc.stdout or "") if isinstance(exc.stdout, str)
+                       else (exc.stdout or b"").decode("utf-8", "replace"))
+            perr = ((exc.stderr or "") if isinstance(exc.stderr, str)
+                    else (exc.stderr or b"").decode("utf-8", "replace"))
+            tail = ((partial + "\n" + perr).strip() or "(the run produced no output at all)")
+            _keep_output(tail, attempt=_try + 1)
+            return _fail(path, "the sweep timed out after %ds — last output: %s"
+                         % (TIMEOUT_S, tail[-400:].replace("\n", " ⏎ ")),
+                         list(S.REQUIRED_SWEEP_SOURCES))
+        except FileNotFoundError:
+            return _fail(path, "the `%s` CLI is not on PATH — a LaunchAgent does "
+                               "not inherit your shell profile" % CLAUDE_BIN,
+                         list(S.REQUIRED_SWEEP_SOURCES))
 
-    # Kept on EVERY run, not only failures: "no result reported by slack" is
-    # unactionable without the transcript that failed to report it.
-    try:
-        LOG_PATH.write_text(text)
-    except Exception:
-        pass
+        # Kept on EVERY attempt, not only failures: "no result reported by slack"
+        # is unactionable without the transcript that failed to report it.
+        _keep_output(text, attempt=_try + 1)
+
+        if not _parse_markers(text)[2]:
+            break                     # earned a real result — never retry over it
+        _why = transient_error(text, rc)
+        attempts.append("attempt %d: %s"
+                        % (_try + 1, _why or "no markers and no API error"))
+        if not _why or _try >= len(RETRY_BACKOFF_S):
+            break
+        time.sleep(RETRY_BACKOFF_S[_try])
+
+    # A run that only ever hit transient API errors must SAY SO. Reporting
+    # "gmail and slack said nothing" for an API 529 sent the diagnosis to the
+    # wrong system for three days.
+    _why = transient_error(text, rc)
+    if _parse_markers(text)[2] and _why:
+        return _fail(path,
+                     "the model call failed before it could read anything — %s. "
+                     "This is the API, NOT gmail or slack; neither was reached. "
+                     "Tried %d time(s): %s"
+                     % (_why, len(attempts), "; ".join(attempts)),
+                     list(S.REQUIRED_SWEEP_SOURCES))
 
     counts, cursors, missing = _parse_markers(text)
     if missing:
