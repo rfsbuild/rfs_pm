@@ -266,6 +266,17 @@ ITEM_FIELDS = (
     # from her phone and gone with the site data. The whole point of D8 is that
     # the audit's output lands as card state she can act on.
     "audit_ruled",
+    # ── her ruling 2026-09-21: Claude MAY act on her cards, but only on a
+    # specific instruction, and the record must show it was an instruction.
+    #   authorized_by — WHO authorised Claude to touch a card she never delegated.
+    #   authorization — her instruction, verbatim. Not a paraphrase: the whole
+    #                   value of this field is that it can be read back and
+    #                   checked against what she actually said.
+    # `done_by` stays "claude". It is never rewritten to read as hers — her
+    # instruction is not her click, and the daily report is a record of her
+    # actions. The authorisation is a SEPARATE fact from the hand that acted.
+    "authorized_by",
+    "authorization",
 )
 
 # status values. `dismissed` = "this task isn't needed" — it is NOT the same as
@@ -835,33 +846,53 @@ def hours_queued(it, now=None):
     return max(0.0, (ref - dt).total_seconds() / 3600.0)
 
 
-def complete_by_claude(item_id, result, path=STATE_PATH, now=None):
+def complete_by_claude(item_id, result, path=STATE_PATH, now=None,
+                       on_her_instruction=""):
     """Mark a delegated item done BY CLAUDE, with what was actually done.
 
     `result` is required. "Done" with no statement of what was done is exactly the
     kind of claim this system exists to prevent — and because these completions
     feed a report about HER day, they have to be separable from her own work.
 
-    Refuses if the item was never delegated to Claude: Claude closing something
-    she never handed over would be Claude deciding her priorities.
+    Refuses if the item was never delegated to Claude AND no instruction from her
+    is supplied: Claude closing something she never handed over, unasked, would be
+    Claude deciding her priorities.
+
+    HER RULING 2026-09-21, verbatim: *"If I give you a specific command in here,
+    you can do it. If I didn't tell you to change any cards, you can't deal with
+    them."* So `on_her_instruction` opens the door — and ONLY her words open it.
+    Pass her instruction verbatim; it is stored so the close can be read back and
+    checked against what she actually said. The default is still closed: with no
+    instruction and no delegation, this refuses exactly as before.
+
+    `done_by` remains "claude" in both paths. Her instruction is not her click,
+    and the daily report is a record of HER actions — inflating it with work
+    Claude did on her say-so is the precise failure the attribution law exists to
+    prevent. The authorisation is recorded ALONGSIDE, never instead.
     """
     result = (result or "").strip()
     if not result:
         return {"error": "say what was actually done — a bare 'done' is not a result"}
+    instruction = (on_her_instruction or "").strip()
 
     def _fn(state):
         it = get_item(state, item_id)
         if it is None:
             return None
-        if it.get("assignee") != "claude":
-            return {"error": "this item was not delegated to Claude; only she can "
-                             "close her own work"}
+        if it.get("assignee") != "claude" and not instruction:
+            return {"error": "this item was not delegated to Claude and you have not "
+                             "quoted an instruction from her; pass on_her_instruction="
+                             "<her words> when she has told you to act on it"}
         it["status"] = "done"
         it["done_at"] = _now_iso(now)
         it["done_by"] = "claude"
         it["claude_result"] = result
+        if instruction:
+            it["authorized_by"] = "hadassa"
+            it["authorization"] = instruction
         it["dismiss_reason"], it["dismissed_at"] = None, None
         return {"ok": True, "id": item_id, "done_by": "claude",
+                "authorized_by": it.get("authorized_by"),
                 "queued_hours": hours_queued(it, now)}
     return _mutate(_fn, path, now)[1]
 
